@@ -1,0 +1,9 @@
+workbook,sheet_name,likely_represents
+Tesla_FDE_Challenge_Data 4,User Feedback,Likely site/location dimension or deployment geography data.
+Tesla_FDE_Challenge_Data 4,Deployment Event Log,"Likely project planning, estimate, or budgeting data."
+Tesla_FDE_Challenge_Data 4,Financial Records,"Likely project planning, estimate, or budgeting data."
+Tesla_FDE_Challenge_Data 4,Adoption Metrics,Likely site/location dimension or deployment geography data.
+Tesla_FDE_Challenge_Data 4,Feature Prototypes,Likely site/location dimension or deployment geography data.
+Tesla_FDE_Challenge_Data 4,Technical Survey,Likely time-series or schedule-related data.
+Tesla_FDE_Challenge_Data 4,Stakeholder Contacts,General dataset; needs deeper domain validation.
+TESLA_NewProject_Estimate 1,Project Estimate,"Likely project planning, estimate, or budgeting data."

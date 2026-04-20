@@ -1,0 +1,9 @@
+workbook,sheet_name,rows,columns,missing_cells,missing_rate
+Tesla_FDE_Challenge_Data 4,Stakeholder Contacts,27,5,15,0.1111111111111111
+Tesla_FDE_Challenge_Data 4,User Feedback,38,7,23,0.08646616541353383
+Tesla_FDE_Challenge_Data 4,Deployment Event Log,36,6,12,0.05555555555555555
+TESLA_NewProject_Estimate 1,Project Estimate,36,9,13,0.040123456790123455
+Tesla_FDE_Challenge_Data 4,Adoption Metrics,27,7,7,0.037037037037037035
+Tesla_FDE_Challenge_Data 4,Financial Records,36,4,4,0.027777777777777776
+Tesla_FDE_Challenge_Data 4,Feature Prototypes,14,6,0,0.0
+Tesla_FDE_Challenge_Data 4,Technical Survey,19,4,0,0.0

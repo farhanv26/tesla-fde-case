@@ -1,0 +1,39 @@
+site,user_team,feedback_type,total_feedback,unresolved_feedback,high_priority_unresolved,unresolved_rate
+Berlin,Foreman,Pain Point,1,1,1,1.0
+Berlin,Procurement Team,Pain Point,1,1,1,1.0
+Berlin,Project Controls,Pain Point,1,1,1,1.0
+GF Berlin,External: GC Partner,Pain Point,1,1,1,1.0
+GF Nevada,Field Supervisor,Pain Point,1,1,1,1.0
+GF Shanghai,External: Structural Eng,Feature Request,1,1,1,1.0
+GF Shanghai,Project Manager,Feature Request,1,1,1,1.0
+GF Texas,External: Commissioning,Pain Point,1,1,1,1.0
+GF Texas,Field Ops Lead,Pain Point,1,1,1,1.0
+GF Texas,QA/QC Team,Pain Point,1,1,1,1.0
+Nevada,Construction PM Team,Pain Point,1,1,1,1.0
+Nevada,Cost Engineer,Pain Point,1,1,1,1.0
+Nevada,Vendor: MEP Contractor,Pain Point,1,1,1,1.0
+Shanghai,Estimating Team,Pain Point,1,1,1,1.0
+Texas,Estimator,Pain Point,1,1,1,1.0
+Texas,Project Controls,Feature Request,1,1,1,1.0
+Berlin,Field Engineer,Feature Request,1,1,0,1.0
+Berlin,Vendor: Electrical Sub,Pain Point,1,1,0,1.0
+GF Berlin,Scheduling Lead,Pain Point,1,1,0,1.0
+GF Berlin,Site Manager,Feature Request,1,1,0,1.0
+GF Mexico,Finance Analyst,Feature Request,1,1,0,1.0
+GF Mexico,Scheduler,Pain Point,1,1,0,1.0
+GF Mexico,Superintendent,Pain Point,1,1,0,1.0
+GF Nevada,Area Manager,Feature Request,1,1,0,1.0
+GF Nevada,Finance Team,Pain Point,1,1,0,1.0
+GF Nevada,Project Controls,Feature Request,1,1,0,1.0
+GF Shanghai,Cost Analyst,Pain Point,1,1,0,1.0
+GF Shanghai,Scheduling,Feature Request,1,1,0,1.0
+GF Texas,Cost Manager,Pain Point,1,1,0,1.0
+Mexico,Field Coordinator,Pain Point,1,1,0,1.0
+Nevada,External: Design Partner,Pain Point,1,1,0,1.0
+Shanghai,Field Coordinator,Pain Point,1,1,0,1.0
+Texas,Construction PM,Feature Request,1,1,0,1.0
+GF Berlin,Finance,Pain Point,1,0,0,0.0
+GF Nevada,Scheduling Team,Pain Point,1,0,0,0.0
+Mexico,Project Manager,Pain Point,1,0,0,0.0
+Mexico,Vendor: Concrete Supplier,Pain Point,1,0,0,0.0
+Shanghai,Construction Super,Pain Point,1,0,0,0.0

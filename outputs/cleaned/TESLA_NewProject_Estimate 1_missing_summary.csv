@@ -1,0 +1,10 @@
+sheet_name,column_name,missing_count,missing_percent
+Project Estimate,project,1,2.78
+Project Estimate,area_system,1,2.78
+Project Estimate,scope_name,0,0.0
+Project Estimate,labor_hours,0,0.0
+Project Estimate,labor_cost,0,0.0
+Project Estimate,material_quantity,0,0.0
+Project Estimate,material_cost,0,0.0
+Project Estimate,rental_cost,11,30.56
+Project Estimate,total_cost,0,0.0

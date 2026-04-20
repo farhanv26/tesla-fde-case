@@ -1,0 +1,4 @@
+normalized_key,occurrence_count,locations
+site,5,Tesla_FDE_Challenge_Data 4::User Feedback::site | Tesla_FDE_Challenge_Data 4::Deployment Event Log::site | Tesla_FDE_Challenge_Data 4::Financial Records::site | Tesla_FDE_Challenge_Data 4::Adoption Metrics::site | Tesla_FDE_Challenge_Data 4::Feature Prototypes::site
+date,3,Tesla_FDE_Challenge_Data 4::User Feedback::date | Tesla_FDE_Challenge_Data 4::Deployment Event Log::date | Tesla_FDE_Challenge_Data 4::Technical Survey::date
+status,2,Tesla_FDE_Challenge_Data 4::User Feedback::status | Tesla_FDE_Challenge_Data 4::Feature Prototypes::status

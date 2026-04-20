@@ -1,0 +1,22 @@
+workbook,sheet_name,column_name,measure_categories
+Tesla_FDE_Challenge_Data 4,User Feedback,date,milestones_schedule
+Tesla_FDE_Challenge_Data 4,User Feedback,feedback_type,status_reporting
+Tesla_FDE_Challenge_Data 4,User Feedback,priority,status_reporting
+Tesla_FDE_Challenge_Data 4,User Feedback,status,status_reporting
+Tesla_FDE_Challenge_Data 4,Deployment Event Log,date,milestones_schedule
+Tesla_FDE_Challenge_Data 4,Deployment Event Log,days_impact,milestones_schedule
+Tesla_FDE_Challenge_Data 4,Deployment Event Log,cost_impact,budgets_costs | milestones_schedule
+Tesla_FDE_Challenge_Data 4,Financial Records,budgeted,budgets_costs
+Tesla_FDE_Challenge_Data 4,Financial Records,actual,budgets_costs
+Tesla_FDE_Challenge_Data 4,Adoption Metrics,week,milestones_schedule
+Tesla_FDE_Challenge_Data 4,Adoption Metrics,areas_systems_deployed,quantities
+Tesla_FDE_Challenge_Data 4,Adoption Metrics,users_blocked,status_reporting
+Tesla_FDE_Challenge_Data 4,Adoption Metrics,incidents_reported,status_reporting
+Tesla_FDE_Challenge_Data 4,Feature Prototypes,status,status_reporting
+Tesla_FDE_Challenge_Data 4,Technical Survey,date,milestones_schedule
+TESLA_NewProject_Estimate 1,Project Estimate,labor_hours,hours
+TESLA_NewProject_Estimate 1,Project Estimate,labor_cost,budgets_costs
+TESLA_NewProject_Estimate 1,Project Estimate,material_quantity,quantities
+TESLA_NewProject_Estimate 1,Project Estimate,material_cost,budgets_costs
+TESLA_NewProject_Estimate 1,Project Estimate,rental_cost,budgets_costs
+TESLA_NewProject_Estimate 1,Project Estimate,total_cost,budgets_costs

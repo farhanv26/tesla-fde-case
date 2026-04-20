@@ -1,0 +1,8 @@
+workbook,sheet_name,row_count,column_count,column_names,dtypes
+Tesla_FDE_Challenge_Data 4,User Feedback,38,7,date | site | user_team | feedback_type | pain_point_request | priority | status,date:str | site:str | user_team:str | feedback_type:str | pain_point_request:str | priority:str | status:str
+Tesla_FDE_Challenge_Data 4,Deployment Event Log,36,6,site | date | event_type | description | days_impact | cost_impact,site:str | date:str | event_type:str | description:str | days_impact:object | cost_impact:object
+Tesla_FDE_Challenge_Data 4,Financial Records,36,4,site | category | budgeted | actual,site:str | category:str | budgeted:object | actual:object
+Tesla_FDE_Challenge_Data 4,Adoption Metrics,27,7,site | week | areas_systems_deployed | users_trained | users_blocked | change_orders_processed | incidents_reported,site:str | week:object | areas_systems_deployed:int64 | users_trained:int64 | users_blocked:float64 | change_orders_processed:object | incidents_reported:object
+Tesla_FDE_Challenge_Data 4,Feature Prototypes,14,6,feature_name | requested_by | site | status | implemented | notes,feature_name:str | requested_by:str | site:str | status:str | implemented:str | notes:str
+Tesla_FDE_Challenge_Data 4,Technical Survey,19,4,area | finding | engineer | date,area:str | finding:str | engineer:str | date:str
+Tesla_FDE_Challenge_Data 4,Stakeholder Contacts,27,5,name | title | team_organization | preferred_contact | availability_notes,name:str | title:str | team_organization:str | preferred_contact:str | availability_notes:str
