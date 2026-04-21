@@ -1,9 +1,9 @@
 finding
 "Previous-site disruption is concentrated at GF Berlin: 5 events, 13.0 impacted days, and ~$136,000 cost impact."
 "Largest budget overrun appears in Berlin / HVAC Systems with variance ~$560,000 (12.0%)."
-Likely pain point cluster: Berlin | Foreman | Pain Point with 1 high-priority unresolved requests.
+No explicit high-priority unresolved issues are currently tagged; most ambiguous signal appears in Berlin | Field Engineer | Feature Request with unresolved rate 100% and status-missing rate 0%.
 "Adoption friction remains elevated at Berlin: avg blocked rate 78.57%, with reporting completion at 100.00%."
 "Reporting completeness risk is highest in 'Stakeholder Contacts' (11.1% missing cells), reducing confidence in status tracking."
-"Composite risk ranking flags top problem site as Berlin, suggesting this is the strongest baseline analog for preventive planning at the new deployment."
+"Composite risk ranking flags top problem site as GF Berlin, suggesting this is the strongest baseline analog for preventive planning at the new deployment."
 "For the new site, FDE should enforce standardized weekly reporting templates and owners for site, status, days-impact, and cost-impact to prevent low-quality operational visibility."
 "For the new site, prioritize early mitigation of top historical pain categories with explicit SLAs for high-priority feedback resolution and blocked-user escalation."

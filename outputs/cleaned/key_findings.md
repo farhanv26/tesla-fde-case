@@ -10,12 +10,12 @@
 4. **Reporting reliability degraded in key operational inputs.**
    - Evidence: Highest missing-input rate is in Stakeholder Contacts at 11.1%.
 5. **Intervention should start with the top-ranked analog site.**
-   - Evidence: Composite priority score ranks Berlin first for preventive playbook design.
+   - Evidence: Composite priority score ranks GF Berlin first for preventive playbook design.
 
 ## Likely User Pain Points
-1. Berlin | Foreman | Pain Point: 1 high-priority unresolved items (100% unresolved rate).
-2. Berlin | Procurement Team | Pain Point: 1 high-priority unresolved items (100% unresolved rate).
-3. Berlin | Project Controls | Pain Point: 1 high-priority unresolved items (100% unresolved rate).
+1. Berlin | Field Engineer | Feature Request: 0 high-priority unresolved items (100% unresolved rate).
+2. GF Mexico | Finance Analyst | Feature Request: 0 high-priority unresolved items (100% unresolved rate).
+3. GF Nevada | Project Controls | Feature Request: 0 high-priority unresolved items (100% unresolved rate).
 
 ## Deployment Recommendations
 1. Enforce a launch-control cadence at the new site: weekly review of blocked-user rate, disruption days, and cost impact with explicit owners.

@@ -13,6 +13,22 @@ from load_data import inspect_all_target_workbooks
 from utils import ensure_directory, get_project_root, normalize_identifier
 
 
+def _normalize_site_family(site_value: object) -> str:
+    """
+    Return a normalized site family label while preserving the original site label.
+
+    We do not merge sites in scoring by default; this is for transparency only
+    (e.g., "Berlin" and "GF Berlin" map to the same family "Berlin").
+    """
+    text = str(site_value).strip()
+    if not text or text.lower() == "nan":
+        return "Unknown"
+    lowered = text.lower()
+    if lowered.startswith("gf "):
+        return text[3:].strip()
+    return text
+
+
 def infer_sheet_purpose(sheet_name: str, columns: list[str]) -> str:
     """Infer a likely sheet purpose from sheet name and column names."""
     combined_text = f"{sheet_name} {' '.join(columns)}".lower()
@@ -67,20 +83,24 @@ def find_possible_join_keys(workbooks: dict[str, dict[str, pd.DataFrame]]) -> pd
 
 
 def _safe_numeric(series: pd.Series) -> pd.Series:
-    """Parse mixed numeric strings like '$35,000', '22k', or '4 days'."""
-    cleaned = (
-        series.astype(str)
-        .str.lower()
-        .str.replace(",", "", regex=False)
-        .str.replace("$", "", regex=False)
-        .str.replace("days", "", regex=False)
-        .str.strip()
-    )
-    has_k_suffix = cleaned.str.endswith("k")
-    cleaned = cleaned.str.replace("k", "", regex=False)
-    numeric = pd.to_numeric(cleaned, errors="coerce")
-    numeric.loc[has_k_suffix.fillna(False)] = numeric.loc[has_k_suffix.fillna(False)] * 1000
+    """Parse mixed numeric strings like '$120k', '28 orders', '3 incidents', '5 days'."""
+    text = series.astype(str).str.lower().str.replace(",", "", regex=False).str.strip()
+    extracted = text.str.extract(r"(-?\d+(?:\.\d+)?)", expand=False)
+    numeric = pd.to_numeric(extracted, errors="coerce")
+
+    # Magnitude suffix handling (e.g., 120k, 1.2m)
+    has_k = text.str.contains(r"\bk\b|k$", regex=True, na=False)
+    has_m = text.str.contains(r"\bm\b|m$", regex=True, na=False)
+    numeric.loc[has_k] = numeric.loc[has_k] * 1_000
+    numeric.loc[has_m] = numeric.loc[has_m] * 1_000_000
     return numeric
+
+
+def _parse_week_number(series: pd.Series) -> pd.Series:
+    """Parse week field robustly (supports 'Week 1', 'Wk 2', '3')."""
+    text = series.astype(str).str.lower().str.strip()
+    extracted = text.str.extract(r"(\d+(?:\.\d+)?)", expand=False)
+    return pd.to_numeric(extracted, errors="coerce")
 
 
 def _sheet_lookup(workbooks: dict[str, dict[str, pd.DataFrame]]) -> dict[str, pd.DataFrame]:
@@ -177,10 +197,14 @@ def _build_feedback_pain_summary(feedback_df: pd.DataFrame) -> pd.DataFrame:
     if not required.issubset(df.columns):
         return pd.DataFrame()
 
-    status_series = df["status"].astype(str).str.lower()
-    unresolved = ~status_series.str.contains("addressed|closed|resolved", regex=True)
+    status_series = df["status"].astype(str).str.lower().str.strip()
+    missing_status = df["status"].isna() | status_series.isin(["", "nan", "none"])
+    resolved = status_series.str.contains("addressed|closed|resolved|done", regex=True, na=False)
+    unresolved_explicit = status_series.str.contains("open|backlog|pending|blocked|issue|in progress", regex=True, na=False)
+    unresolved = unresolved_explicit & (~missing_status) & (~resolved)
     high_priority = df["priority"].astype(str).str.lower().str.contains("high", regex=False)
 
+    df["status_missing"] = missing_status
     df["is_unresolved"] = unresolved
     df["is_high_priority"] = high_priority
     df["is_high_priority_unresolved"] = df["is_unresolved"] & df["is_high_priority"]
@@ -191,10 +215,12 @@ def _build_feedback_pain_summary(feedback_df: pd.DataFrame) -> pd.DataFrame:
             total_feedback=("feedback_type", "count"),
             unresolved_feedback=("is_unresolved", "sum"),
             high_priority_unresolved=("is_high_priority_unresolved", "sum"),
+            missing_status_count=("status_missing", "sum"),
         )
         .reset_index()
     )
     summary["unresolved_rate"] = summary["unresolved_feedback"] / summary["total_feedback"]
+    summary["status_missing_rate"] = summary["missing_status_count"] / summary["total_feedback"]
     return summary.sort_values(["high_priority_unresolved", "unresolved_rate"], ascending=False)
 
 
@@ -205,7 +231,7 @@ def _build_adoption_metrics(adoption_df: pd.DataFrame) -> pd.DataFrame:
     if not required.issubset(df.columns):
         return pd.DataFrame()
 
-    df["week_num"] = _safe_numeric(df["week"])
+    df["week_num"] = _parse_week_number(df["week"])
     df["users_blocked_num"] = _safe_numeric(df["users_blocked"])
     df["users_trained_num"] = _safe_numeric(df["users_trained"])
     df["areas_systems_deployed_num"] = _safe_numeric(df["areas_systems_deployed"])
@@ -261,29 +287,72 @@ def _build_problem_area_ranking(
     financial_variance_df: pd.DataFrame,
     pain_summary_df: pd.DataFrame,
     adoption_metrics_df: pd.DataFrame,
-) -> pd.DataFrame:
-    """Rank sites using a blended issue score from available metrics."""
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Rank sites using a blended issue score and return contribution breakdown.
+
+    Methodology note: this is a directional triage index for prioritization,
+    not a calibrated predictive risk model.
+    """
     site_scores: dict[str, float] = defaultdict(float)
+    contribution_rows: list[dict[str, float | str]] = []
 
     if not event_risk_df.empty:
         max_cost = event_risk_df["total_cost_impact"].max() or 1
         max_days = event_risk_df["total_days_impact"].max() or 1
         for _, row in event_risk_df.iterrows():
-            site_scores[str(row["site"])] += 0.6 * (row["total_cost_impact"] / max_cost) + 0.4 * (
-                row["total_days_impact"] / max_days
+            site = str(row["site"])
+            cost_component = 0.6 * (row["total_cost_impact"] / max_cost)
+            delay_component = 0.4 * (row["total_days_impact"] / max_days)
+            site_scores[site] += cost_component + delay_component
+            contribution_rows.append(
+                {
+                    "site": site,
+                    "site_family": _normalize_site_family(site),
+                    "component": "disruption_cost",
+                    "component_score": float(cost_component),
+                }
+            )
+            contribution_rows.append(
+                {
+                    "site": site,
+                    "site_family": _normalize_site_family(site),
+                    "component": "delay_impact",
+                    "component_score": float(delay_component),
+                }
             )
 
     if not financial_variance_df.empty:
         positive_variance = financial_variance_df.groupby("site", as_index=False)["variance"].sum()
         max_variance = positive_variance["variance"].max() or 1
         for _, row in positive_variance.iterrows():
-            site_scores[str(row["site"])] += max(float(row["variance"]), 0) / max_variance
+            site = str(row["site"])
+            value = max(float(row["variance"]), 0) / max_variance
+            site_scores[site] += value
+            contribution_rows.append(
+                {
+                    "site": site,
+                    "site_family": _normalize_site_family(site),
+                    "component": "budget_variance",
+                    "component_score": float(value),
+                }
+            )
 
     if not pain_summary_df.empty:
         pain_by_site = pain_summary_df.groupby("site", as_index=False)["high_priority_unresolved"].sum()
         max_pain = pain_by_site["high_priority_unresolved"].max() or 1
         for _, row in pain_by_site.iterrows():
-            site_scores[str(row["site"])] += float(row["high_priority_unresolved"]) / max_pain
+            site = str(row["site"])
+            value = float(row["high_priority_unresolved"]) / max_pain
+            site_scores[site] += value
+            contribution_rows.append(
+                {
+                    "site": site,
+                    "site_family": _normalize_site_family(site),
+                    "component": "unresolved_issues",
+                    "component_score": float(value),
+                }
+            )
 
     if not adoption_metrics_df.empty and "site" in adoption_metrics_df.columns:
         adoption_site = adoption_metrics_df.groupby("site", as_index=False).agg(
@@ -291,14 +360,42 @@ def _build_problem_area_ranking(
             reporting_completion_rate=("reporting_completion_rate", "mean"),
         )
         for _, row in adoption_site.iterrows():
+            site = str(row["site"])
             blocked_component = float(row["blocked_rate"]) if pd.notna(row["blocked_rate"]) else 0.0
-            reporting_penalty = 1 - float(row["reporting_completion_rate"])
-            site_scores[str(row["site"])] += blocked_component + reporting_penalty
+            reporting_penalty = 1 - float(row["reporting_completion_rate"]) if pd.notna(row["reporting_completion_rate"]) else 0.0
+            site_scores[site] += blocked_component + reporting_penalty
+            contribution_rows.append(
+                {
+                    "site": site,
+                    "site_family": _normalize_site_family(site),
+                    "component": "adoption_friction",
+                    "component_score": blocked_component,
+                }
+            )
+            contribution_rows.append(
+                {
+                    "site": site,
+                    "site_family": _normalize_site_family(site),
+                    "component": "reporting_completeness_penalty",
+                    "component_score": reporting_penalty,
+                }
+            )
 
     ranked = pd.DataFrame(
         [{"site": site, "problem_score": score} for site, score in site_scores.items()]
     ).sort_values("problem_score", ascending=False)
-    return ranked.reset_index(drop=True)
+    ranked["site_family"] = ranked["site"].map(_normalize_site_family)
+
+    contributions = pd.DataFrame(contribution_rows)
+    if contributions.empty:
+        contributions = pd.DataFrame(columns=["site", "site_family", "component", "component_score"])
+    else:
+        contributions = (
+            contributions.groupby(["site", "site_family", "component"], as_index=False)["component_score"]
+            .sum()
+            .sort_values(["site", "component"])
+        )
+    return ranked.reset_index(drop=True), contributions
 
 
 def _save_charts(
@@ -638,13 +735,14 @@ def run_inspection_analysis() -> None:
     missing_input_df = _build_missing_input_by_sheet(workbooks)
     missing_input_df.to_csv(cleaned_dir / "missing_input_risk_by_sheet.csv", index=False)
 
-    problem_ranking_df = _build_problem_area_ranking(
+    problem_ranking_df, risk_contributions_df = _build_problem_area_ranking(
         event_risk_df=event_risk_df,
         financial_variance_df=financial_variance_df,
         pain_summary_df=pain_summary_df,
         adoption_metrics_df=adoption_metrics_df,
     )
     problem_ranking_df.to_csv(cleaned_dir / "problem_area_ranking.csv", index=False)
+    risk_contributions_df.to_csv(cleaned_dir / "problem_score_contributions_by_site.csv", index=False)
 
     _save_charts(
         charts_dir=charts_dir,
@@ -680,11 +778,22 @@ def run_inspection_analysis() -> None:
             f"with variance ~${worst_variance['variance']:,.0f} ({worst_variance['variance_pct']:.1f}%)."
         )
     if not pain_summary_df.empty:
-        top_pain = pain_summary_df.iloc[0]
-        findings.append(
-            f"Likely pain point cluster: {top_pain['site']} | {top_pain['user_team']} | {top_pain['feedback_type']} "
-            f"with {int(top_pain['high_priority_unresolved'])} high-priority unresolved requests."
+        top_pain_ranked = pain_summary_df.sort_values(
+            ["high_priority_unresolved", "unresolved_feedback", "status_missing_rate"],
+            ascending=[False, False, False],
         )
+        top_pain = top_pain_ranked.iloc[0]
+        if float(top_pain["high_priority_unresolved"]) > 0:
+            findings.append(
+                f"Likely pain point cluster: {top_pain['site']} | {top_pain['user_team']} | {top_pain['feedback_type']} "
+                f"with {int(top_pain['high_priority_unresolved'])} high-priority unresolved requests."
+            )
+        else:
+            findings.append(
+                f"No explicit high-priority unresolved issues are currently tagged; "
+                f"most ambiguous signal appears in {top_pain['site']} | {top_pain['user_team']} | {top_pain['feedback_type']} "
+                f"with unresolved rate {top_pain['unresolved_rate']:.0%} and status-missing rate {top_pain['status_missing_rate']:.0%}."
+            )
     if not adoption_metrics_df.empty:
         site_adoption = (
             adoption_metrics_df.groupby("site", as_index=False)
