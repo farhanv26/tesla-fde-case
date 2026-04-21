@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Literal
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from analyze import run_inspection_analysis
@@ -14,7 +18,7 @@ from utils import get_project_root
 
 st.set_page_config(page_title="Tesla FDE Deployment Dashboard", page_icon=":bar_chart:", layout="wide")
 
-# Presentation-only labels for risk breakdown charts and tables (does not change underlying metrics).
+
 _RISK_SCORE_COMPONENT_LABELS: dict[str, str] = {
     "disruption_cost": "Disruption Cost ($)",
     "delay_impact": "Delay Impact (Days)",
@@ -24,66 +28,173 @@ _RISK_SCORE_COMPONENT_LABELS: dict[str, str] = {
     "reporting_completeness_penalty": "Reporting Completeness Penalty",
 }
 
+_MAIN_DRIVER_SUMMARY: dict[str, str] = {
+    "disruption_cost": "Disruption-driven cost pressure",
+    "delay_impact": "Schedule delays and slip",
+    "budget_variance": "Budget variance / controls",
+    "unresolved_issues": "Unresolved high-priority feedback",
+    "adoption_friction": "Adoption friction (blocked users)",
+    "reporting_completeness_penalty": "Reporting gaps",
+}
+
+_ACTION_STRIP_SHORT: dict[str, str] = {
+    "disruption_cost": "Daily impact huddle + owners",
+    "delay_impact": "Daily PM review + schedule recovery",
+    "budget_variance": "Estimate vs. actual + change control",
+    "unresolved_issues": "Triage cadence + named owners",
+    "adoption_friction": "Targeted onboarding + unblock list",
+    "reporting_completeness_penalty": "Lock weekly reporting + sign-off",
+}
+
+_FOCUS_COLOR = "#1D4ED8"
+_MUTED_COLOR = "#CBD5E1"
+
+_PLOTLY_CONFIG: dict = {
+    "displayModeBar": False,
+    "scrollZoom": False,
+    "responsive": True,
+}
+
+# Session state keys (centralized so nothing is misspelled across callers).
+_SS_CLICK = "fde_clicked_site"
+_SS_PREV_SIDEBAR = "fde_prev_sidebar_sites"
+
+
+@dataclass(frozen=True)
+class FocusState:
+    """Single source of truth for narrative + highlights vs. filters."""
+
+    mode: Literal["portfolio", "single", "multi"]
+    selected_sites: tuple[str, ...]
+    focus_site: str
+    focus_score: float
+    source: Literal["click", "sidebar_single", "sidebar_multi", "auto", "portfolio", "none"]
+
 
 def _inject_styles() -> None:
-    """Apply a clean light, presentation-ready style."""
+    """Light presentation theme. Nothing here controls chart height — Plotly owns that."""
     st.markdown(
         """
         <style>
             :root {
                 --bg-main: #F7F9FB;
-                --bg-panel: #FFFFFF;
-                --bg-card: #FFFFFF;
                 --text-primary: #0F172A;
                 --text-secondary: #334155;
                 --border-soft: #D9E2EC;
-                --accent: #2563EB;
-                --risk: #DC2626;
+                --focus: #1D4ED8;
             }
             * { font-family: Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
             .stApp { background-color: var(--bg-main); color: var(--text-primary); }
+            .stApp, [data-testid="stAppViewContainer"] { color-scheme: light; }
             .stApp [data-testid="stMarkdownContainer"] p,
             .stApp [data-testid="stMarkdownContainer"] li { color: #0F172A; }
-            [data-testid="stPlotlyChart"] {
-                background-color: #EEF2F7 !important;
-                border: 1px solid #D9E2EC !important;
-                border-radius: 12px !important;
-                padding: 10px 12px 6px 12px !important;
-                margin-bottom: 6px !important;
-            }
-            [data-testid="stPlotlyChart"] .js-plotly-plot .plot-container {
-                border-radius: 8px;
-            }
-            .block-container { padding-top: 0.35rem; padding-bottom: 0.75rem; max-width: 1450px; }
+            .block-container { padding-top: 0.5rem; padding-bottom: 0.75rem; max-width: 1450px; }
             h1, h2, h3 { color: var(--text-primary); letter-spacing: 0.2px; }
-            .main-title { text-align: center; font-size: 2rem; font-weight: 750; color: #0B1733; margin-bottom: 0.25rem; }
-            .app-subtitle { color: var(--text-secondary); margin-top: -4px; margin-bottom: 6px; font-size: 0.95rem; text-align: center; }
-            .section-header {
-                font-size: 1.02rem;
-                font-weight: 650;
-                color: #13233F;
-                padding: 0.4rem 0.2rem;
-                border-bottom: 1px solid var(--border-soft);
-                margin: 0.45rem 0 0.5rem 0;
+            .main-title {
+                text-align: center; font-size: 1.65rem; font-weight: 750;
+                color: #0B1733; margin-bottom: 0.05rem;
             }
+            .app-subtitle {
+                color: var(--text-secondary); margin: -2px 0 6px 0;
+                font-size: 0.88rem; text-align: center;
+            }
+            .mode-label {
+                text-align: center;
+                margin: 0 0 6px 0;
+                font-size: 0.78rem;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+                font-weight: 700;
+            }
+            .mode-label .pill {
+                display: inline-block;
+                padding: 3px 12px;
+                border-radius: 999px;
+                color: #FFFFFF;
+                background: #64748B;
+            }
+            .mode-label.deepdive .pill { background: var(--focus); }
+            .mode-label .site { color: var(--focus); font-weight: 700; }
+            .section-header {
+                font-size: 1rem; font-weight: 650; color: #13233F;
+                padding: 0.25rem 0.2rem;
+                border-bottom: 1px solid var(--border-soft);
+                margin: 0.5rem 0 0.35rem 0;
+            }
+            .hint {
+                color: #64748B; font-size: 0.78rem; margin: -2px 0 6px 2px;
+            }
+
+            .focus-banner {
+                display: flex; align-items: center; gap: 14px;
+                border-radius: 12px; padding: 10px 16px;
+                margin: 0.3rem 0 0.55rem 0;
+                border: 1px solid #BFDBFE;
+                background: linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%);
+            }
+            .focus-banner.portfolio {
+                border-color: #E2E8F0;
+                background: linear-gradient(180deg, #F8FAFC 0%, #FFFFFF 100%);
+            }
+            .focus-banner .pill {
+                font-size: 0.7rem; text-transform: uppercase;
+                letter-spacing: 0.08em; font-weight: 700;
+                color: #FFFFFF; background: var(--focus);
+                padding: 4px 10px; border-radius: 999px;
+            }
+            .focus-banner.portfolio .pill { background: #64748B; }
+            .focus-banner .text {
+                color: #0B1733; font-size: 0.98rem; line-height: 1.35;
+            }
+            .focus-banner .text b { color: var(--focus); }
+
             .kpi-card {
                 border: 1px solid var(--border-soft);
-                border-radius: 12px;
-                padding: 14px 16px;
+                border-radius: 10px;
+                padding: 10px 14px;
                 background: #FFFFFF;
-                min-height: 88px;
+                height: 88px;
+                display: flex; flex-direction: column; justify-content: center;
                 box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
             }
-            .kpi-label { font-size: 0.82rem; color: #475569; margin-bottom: 6px; letter-spacing: 0.15px; }
-            .kpi-value { font-size: 1.78rem; font-weight: 760; color: #0F172A; line-height: 1.1; }
-            [data-testid="stSidebar"] { background-color: #FFFFFF !important; border-right: 1px solid var(--border-soft); }
-            [data-testid="stSidebar"] .block-container { padding-top: 0.8rem; }
+            .kpi-card.focus {
+                border-color: var(--focus);
+                box-shadow: 0 1px 3px rgba(29, 78, 216, 0.15);
+            }
+            .kpi-label {
+                font-size: 0.7rem; text-transform: uppercase;
+                letter-spacing: 0.06em; color: #64748B; margin-bottom: 4px;
+            }
+            .kpi-value { font-size: 1.0rem; font-weight: 650; color: #0F172A; line-height: 1.25; }
+            .kpi-card.focus .kpi-value { color: var(--focus); }
+
+            .affected-card {
+                border: 1px solid var(--border-soft);
+                border-radius: 10px;
+                padding: 14px 16px;
+                background: #FFFFFF;
+                height: 420px;
+                overflow: hidden;
+            }
+            .affected-card h4 { margin: 0 0 10px 0; font-size: 0.95rem; color: #0F172A; }
+            .affected-card .stat-row {
+                display: flex; justify-content: space-between;
+                padding: 6px 0; border-bottom: 1px dashed #E5E7EB;
+                color: #0F172A; font-size: 0.88rem;
+            }
+            .affected-card .stat-row:last-child { border-bottom: none; }
+            .affected-card .stat-row .v { font-weight: 700; color: var(--focus); }
+            .affected-card ul { margin: 8px 0 0 0; padding-left: 18px; color: #0F172A; font-size: 0.88rem; }
+            .affected-card ul li { margin-bottom: 3px; }
+            .affected-card .muted { color: #64748B; font-size: 0.8rem; margin-top: 6px; }
+
+            [data-testid="stSidebar"] {
+                background-color: #FFFFFF !important;
+                border-right: 1px solid var(--border-soft);
+            }
             [data-testid="stSidebar"] label,
             [data-testid="stSidebar"] h2,
             [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color: #1E293B !important; }
-            [data-testid="stSidebar"] .stMultiSelect, [data-testid="stSidebar"] .stSlider {
-                margin-bottom: 0.45rem;
-            }
             [data-testid="stSidebar"] [data-baseweb="select"] > div,
             [data-testid="stSidebar"] [data-baseweb="input"] input {
                 background-color: #FFFFFF !important;
@@ -91,46 +202,12 @@ def _inject_styles() -> None:
                 border: 1px solid #CBD5E1 !important;
                 border-radius: 8px !important;
             }
-            [data-testid="stSidebar"] [data-baseweb="select"] svg,
-            [data-testid="stSidebar"] [data-baseweb="select"] path,
-            [data-testid="stSidebar"] [data-baseweb="popover"] svg,
-            [data-testid="stSidebar"] [data-baseweb="popover"] path {
-                fill: #0F172A !important;
-                color: #0F172A !important;
-                opacity: 1 !important;
-            }
-            div[data-baseweb="popover"],
-            ul[role="listbox"],
-            li[role="option"] {
-                background-color: #FFFFFF !important;
-                color: #0F172A !important;
-                border: 1px solid #E2E8F0 !important;
-                box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
-            }
-            li[role="option"]:hover,
-            li[role="option"][aria-selected="true"] {
-                background-color: #EFF6FF !important;
-                color: #0F172A !important;
-            }
-            [data-testid="stSidebar"] .stSlider label { color: #1E293B !important; font-weight: 500 !important; }
-            [data-testid="stSidebar"] .stSlider [data-baseweb="slider"] { background-color: #E2E8F0 !important; }
-            [data-testid="stDataFrame"] {
-                border: 1px solid var(--border-soft);
-                border-radius: 10px;
-                overflow: hidden;
-                background-color: #FFFFFF !important;
-            }
-            [data-testid="stDataFrame"] [data-testid="stStyledTable"] {
-                background-color: #FFFFFF !important;
-            }
             [data-testid="stToolbar"],
             [data-testid="stDecoration"],
             [data-testid="stStatusWidget"],
             header[data-testid="stHeader"],
             #MainMenu,
-            footer {
-                display: none !important;
-            }
+            footer { display: none !important; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -138,12 +215,10 @@ def _inject_styles() -> None:
 
 
 def _read_csv_if_exists(path: Path) -> pd.DataFrame:
-    """Load CSV if available; return empty dataframe otherwise."""
     return pd.read_csv(path) if path.exists() else pd.DataFrame()
 
 
 def _load_cleaned_data(cleaned_dir: Path) -> dict[str, pd.DataFrame]:
-    """Load dashboard datasets from outputs/cleaned."""
     return {
         "ranking": _read_csv_if_exists(cleaned_dir / "problem_area_ranking.csv"),
         "risk_contrib": _read_csv_if_exists(cleaned_dir / "problem_score_contributions_by_site.csv"),
@@ -156,11 +231,6 @@ def _load_cleaned_data(cleaned_dir: Path) -> dict[str, pd.DataFrame]:
 
 
 def _ensure_data_ready(cleaned_dir: Path) -> dict[str, pd.DataFrame]:
-    """
-    Ensure cleaned outputs exist.
-
-    Falls back to running analysis when cleaned artifacts are missing.
-    """
     data = _load_cleaned_data(cleaned_dir)
     if any(df.empty for df in data.values()):
         with st.spinner("Preparing cleaned diagnostics from source workbooks..."):
@@ -169,166 +239,176 @@ def _ensure_data_ready(cleaned_dir: Path) -> dict[str, pd.DataFrame]:
     return data
 
 
-def _kpi_card(label: str, value: str) -> None:
-    """Render one KPI card."""
-    st.markdown(
-        f"""
-        <div class="kpi-card">
-            <div class="kpi-label">{label}</div>
-            <div class="kpi-value">{value}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-def _apply_light_chart(
-    fig,
+def render_chart(
+    fig: go.Figure,
     *,
-    title: str,
-    legend_below: bool = False,
-    extra_right: int = 0,
-    extra_left: int = 0,
-) -> None:
-    """Light theme + high-contrast text for screenshots; does not change data."""
-    legend_config = (
-        {
-            "font": {"size": 13, "color": "#0F172A"},
-            "bgcolor": "rgba(255,255,255,0.97)",
-            "bordercolor": "#E2E8F0",
-            "borderwidth": 1,
-            "orientation": "h",
-            "y": -0.32,
-            "yanchor": "top",
-            "x": 0.5,
-            "xanchor": "center",
-        }
-        if legend_below
-        else {
-            "font": {"size": 13, "color": "#0F172A"},
-            "bgcolor": "rgba(255,255,255,0.97)",
-            "bordercolor": "#E2E8F0",
-            "borderwidth": 1,
-        }
-    )
+    title: str = "",
+    height: int = 420,
+    margin: dict | None = None,
+    show_legend: bool = False,
+    selectable: bool = False,
+    key: str | None = None,
+) -> Any:
+    """Single chart entry point.
+
+    When ``selectable`` + ``key`` are provided, the chart emits a point-selection
+    event on click and the whole script reruns with the event object returned.
+    """
+    default_margin = {"l": 58, "r": 40, "t": 48 if title else 20, "b": 52}
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FAFBFD",
-        title={
-            "text": title,
-            "x": 0.5,
-            "xanchor": "center",
-            "font": {"size": 20, "color": "#0F172A"},
-        },
-        font={"color": "#0F172A", "size": 14},
-        margin={
-            "l": 48 + extra_left,
-            "r": 44 + extra_right,
-            "t": 64,
-            "b": 118 if legend_below else 56,
-        },
-        legend_title_text="",
-        legend=legend_config,
-        height=305,
+        plot_bgcolor="#FFFFFF",
+        autosize=False,
+        height=height,
+        margin=margin or default_margin,
+        title=(
+            {"text": title, "x": 0.5, "xanchor": "center",
+             "font": {"size": 15, "color": "#0F172A"}}
+            if title else None
+        ),
+        font={"color": "#0F172A", "size": 13},
+        showlegend=show_legend,
+        dragmode=False,
+        hoverlabel=dict(bgcolor="#FFFFFF", font_size=12, font_family="Inter, sans-serif"),
     )
     fig.update_xaxes(
-        showgrid=True,
-        gridcolor="#E8EDF3",
-        zeroline=False,
-        linecolor="#94A3B8",
-        title_font={"size": 15, "color": "#0F172A"},
-        tickfont={"size": 12, "color": "#334155"},
-        mirror=False,
+        showgrid=True, gridcolor="#E8EDF3", zeroline=False, linecolor="#94A3B8",
+        title_font={"size": 12, "color": "#0F172A"}, tickfont={"size": 11, "color": "#334155"},
+        automargin=True, fixedrange=True,
     )
     fig.update_yaxes(
-        showgrid=True,
-        gridcolor="#E8EDF3",
-        zeroline=False,
-        linecolor="#94A3B8",
-        title_font={"size": 15, "color": "#0F172A"},
-        tickfont={"size": 12, "color": "#334155"},
-        mirror=False,
+        showgrid=True, gridcolor="#E8EDF3", zeroline=False, linecolor="#94A3B8",
+        title_font={"size": 12, "color": "#0F172A"}, tickfont={"size": 11, "color": "#334155"},
+        automargin=True, fixedrange=True,
     )
+    if selectable and key:
+        return st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config=_PLOTLY_CONFIG,
+            on_select="rerun",
+            selection_mode="points",
+            key=key,
+        )
+    st.plotly_chart(fig, use_container_width=True, config=_PLOTLY_CONFIG)
+    return None
 
 
-def _style_colorbar(fig, *, title: str) -> None:
-    """Readable colorbar for continuous scales (delay rate, etc.)."""
-    fig.update_layout(
-        coloraxis_colorbar=dict(
-            title=dict(text=title, font=dict(size=14, color="#0F172A")),
-            tickfont=dict(size=12, color="#334155"),
-            outlinecolor="#CBD5E1",
-            outlinewidth=1,
-            bgcolor="#FFFFFF",
+def _event_points(event: Any) -> list:
+    """Defensive accessor for Plotly selection points across Streamlit versions."""
+    if event is None:
+        return []
+    try:
+        sel = event["selection"] if isinstance(event, dict) else event.selection  # type: ignore[attr-defined]
+    except (KeyError, AttributeError):
+        return []
+    if sel is None:
+        return []
+    try:
+        pts = sel["points"] if isinstance(sel, dict) else sel.points  # type: ignore[attr-defined]
+    except (KeyError, AttributeError):
+        return []
+    return list(pts or [])
+
+
+def _click_site_from_event(event: Any, *, source: Literal["scatter", "ranking"]) -> str | None:
+    """Extract a site name from a Streamlit Plotly selection event."""
+    pts = _event_points(event)
+    if not pts:
+        return None
+    pt = pts[0]
+    pt_d = pt if isinstance(pt, dict) else dict(pt)
+    if source == "scatter":
+        cd = pt_d.get("customdata")
+        if cd and len(cd) > 0:
+            return str(cd[0])
+        return None
+    y = pt_d.get("y")
+    return str(y) if y is not None else None
+
+
+def _build_delay_cost_scatter(events: pd.DataFrame, focus_site: str) -> go.Figure:
+    """Delay vs disruption cost. Colorbar on right; focus highlighted with ring + label."""
+    required = ("total_days_impact", "total_cost_impact", "delay_event_rate", "site")
+    fig = go.Figure()
+    if events.empty or not all(c in events.columns for c in required):
+        return fig
+
+    ev = events.loc[:, list(required)].copy()
+    ev["_x"] = pd.to_numeric(ev["total_days_impact"], errors="coerce")
+    ev["_y"] = pd.to_numeric(ev["total_cost_impact"], errors="coerce")
+    ev["_rate"] = pd.to_numeric(ev["delay_event_rate"], errors="coerce").fillna(0.0)
+    ev["_site"] = ev["site"].astype(str)
+    ev = ev.dropna(subset=["_x", "_y"])
+    if ev.empty:
+        return fig
+
+    # Focus ring is drawn FIRST so the clickable marker sits on top (click + hover both work).
+    if focus_site:
+        f = ev[ev["_site"] == str(focus_site)]
+        if not f.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=f["_x"], y=f["_y"], mode="markers",
+                    marker=dict(
+                        size=34, symbol="circle-open",
+                        line=dict(width=3, color=_FOCUS_COLOR),
+                        color="rgba(0,0,0,0)",
+                    ),
+                    hoverinfo="skip", showlegend=False,
+                )
+            )
+
+    customdata = np.column_stack([ev["_site"].values, ev["_rate"].values])
+    fig.add_trace(
+        go.Scatter(
+            x=ev["_x"], y=ev["_y"], mode="markers",
+            marker=dict(
+                size=16,
+                color=ev["_rate"],
+                cmin=0.0, cmax=max(0.01, float(ev["_rate"].max())),
+                colorscale="YlOrRd", showscale=True,
+                colorbar=dict(
+                    title=dict(text="Delay-like<br>share", font=dict(size=11, color="#111827")),
+                    tickformat=".0%", len=0.75, thickness=10,
+                    outlinewidth=1, outlinecolor="#CBD5E1",
+                    x=1.015, xanchor="left",
+                ),
+                line=dict(width=0.5, color="#FFFFFF"),
+                opacity=0.95,
+            ),
+            customdata=customdata,
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "Delay: %{x:.1f} days<br>"
+                "Disruption cost: $%{y:,.0f}<br>"
+                "Delay-like share: %{customdata[1]:.1%}"
+                "<extra></extra>"
+            ),
+            showlegend=False,
         )
     )
 
+    if focus_site:
+        f = ev[ev["_site"] == str(focus_site)]
+        if not f.empty:
+            fx = float(f["_x"].iloc[0])
+            fy = float(f["_y"].iloc[0])
+            fig.add_annotation(
+                x=fx, y=fy, text=f"<b>{focus_site}</b>",
+                showarrow=False, yshift=26,
+                font=dict(size=12, color=_FOCUS_COLOR),
+                bgcolor="rgba(255,255,255,0.9)",
+                bordercolor=_FOCUS_COLOR, borderwidth=1, borderpad=3,
+            )
 
-def _light_table_styles() -> list[dict]:
-    """Light, presentation-friendly table chrome (used with pandas Styler)."""
-    return [
-        {"selector": "th", "props": [
-            ("background-color", "#E8EEF4"),
-            ("color", "#0F172A"),
-            ("font-weight", "650"),
-            ("font-size", "13px"),
-            ("border", "1px solid #E2E8F0"),
-            ("padding", "10px 12px"),
-            ("text-align", "left"),
-        ]},
-        {"selector": "td", "props": [
-            ("background-color", "#FFFFFF"),
-            ("color", "#0F172A"),
-            ("font-size", "13px"),
-            ("border", "1px solid #E8EDF3"),
-            ("padding", "8px 12px"),
-        ]},
-        {"selector": "table", "props": [
-            ("border-collapse", "collapse"),
-            ("background-color", "#FFFFFF"),
-        ]},
-    ]
-
-
-def _style_top_risk_sites_table(table_df: pd.DataFrame):
-    """White base table; subtle heat only on the priority column."""
-    heat_col = "Review Priority Index"
-    fmt = {
-        "Disruption Cost ($)": "${:,.0f}",
-        "Delay Impact (Days)": "{:.1f}",
-        "Budget Variance ($)": "${:,.0f}",
-        heat_col: "{:.2f}",
-    }
-    base_cols = [c for c in table_df.columns if c != heat_col]
-    pi_min = float(table_df[heat_col].min())
-    pi_max = float(table_df[heat_col].max())
-    return (
-        table_df.style.format(fmt)
-        .set_properties(subset=base_cols, **{"background-color": "#FFFFFF", "color": "#0F172A"})
-        .background_gradient(subset=[heat_col], cmap="YlOrBr", vmin=pi_min, vmax=pi_max)
-        .set_table_styles(_light_table_styles())
-    )
-
-
-def _style_risk_breakdown_table(contrib_rounded: pd.DataFrame, *, total_col: str = "Composite Risk Score"):
-    """Component columns stay neutral; heat only on the total column."""
-    id_cols = ("Site", "Site Family")
-    numeric_cols = [c for c in contrib_rounded.columns if c not in id_cols]
-    fmt_dict = {c: "{:.2f}" for c in numeric_cols}
-    neutral_cols = [c for c in contrib_rounded.columns if c != total_col]
-    ts_min = float(contrib_rounded[total_col].min()) if not contrib_rounded.empty else 0.0
-    ts_max = float(contrib_rounded[total_col].max()) if not contrib_rounded.empty else 1.0
-    return (
-        contrib_rounded.style.format(fmt_dict)
-        .set_properties(subset=neutral_cols, **{"background-color": "#FFFFFF", "color": "#0F172A"})
-        .background_gradient(subset=[total_col], cmap="YlOrBr", vmin=ts_min, vmax=ts_max)
-        .set_table_styles(_light_table_styles())
-    )
+    fig.update_xaxes(title="Delay impact (days)")
+    fig.update_yaxes(title="Disruption cost ($)")
+    return fig
 
 
 def _build_sidebar_filters(data: dict[str, pd.DataFrame]) -> dict[str, list[str] | tuple[float, float]]:
-    """Build sidebar filters from dimensions that exist in cleaned data."""
     site_values: set[str] = set()
     for key in ("events", "pain", "adoption", "finance", "ranking"):
         df = data[key]
@@ -339,10 +419,6 @@ def _build_sidebar_filters(data: dict[str, pd.DataFrame]) -> dict[str, list[str]
     if not data["pain"].empty and "user_team" in data["pain"].columns:
         team_values = sorted(data["pain"]["user_team"].dropna().astype(str).unique().tolist())
 
-    system_values: list[str] = []
-    if not data["finance"].empty and "category" in data["finance"].columns:
-        system_values = sorted(data["finance"]["category"].dropna().astype(str).unique().tolist())
-
     week_bounds = (1.0, 12.0)
     if not data["adoption"].empty and "week_num" in data["adoption"].columns:
         week_num = pd.to_numeric(data["adoption"]["week_num"], errors="coerce").dropna()
@@ -350,30 +426,35 @@ def _build_sidebar_filters(data: dict[str, pd.DataFrame]) -> dict[str, list[str]
             week_bounds = (float(week_num.min()), float(week_num.max()))
 
     st.sidebar.markdown("### Filters")
+    st.sidebar.caption("Click a point / bar to deep-dive. Pick a site here to lock it.")
     selected_sites = st.sidebar.multiselect("Site", options=sorted(site_values))
-    selected_teams = st.sidebar.multiselect("Team", options=team_values)
-    selected_systems = st.sidebar.multiselect("System Category", options=system_values)
+    selected_teams = st.sidebar.multiselect("Team (affects pain signals only)", options=team_values)
     selected_week_range = st.sidebar.slider(
-        "Week Range",
+        "Deployment week (relative)",
         min_value=float(week_bounds[0]),
         max_value=float(week_bounds[1]),
         value=(float(week_bounds[0]), float(week_bounds[1])),
         step=1.0,
     )
+    st.sidebar.markdown("---")
+    if st.sidebar.button("Reset focus", use_container_width=True):
+        st.session_state[_SS_CLICK] = None
+        st.session_state[_SS_PREV_SIDEBAR] = list(selected_sites)
+        st.rerun()
 
     return {
         "sites": selected_sites,
         "teams": selected_teams,
-        "systems": selected_systems,
         "week_range": selected_week_range,
     }
 
 
-def _apply_filters(data: dict[str, pd.DataFrame], filters: dict[str, list[str] | tuple[float, float]]) -> dict[str, pd.DataFrame]:
-    """Apply shared sidebar filters to each dataset."""
+def _apply_filters(
+    data: dict[str, pd.DataFrame],
+    filters: dict[str, list[str] | tuple[float, float]],
+) -> dict[str, pd.DataFrame]:
     sites = filters["sites"]
     teams = filters["teams"]
-    systems = filters["systems"]
     week_low, week_high = filters["week_range"]
 
     filtered: dict[str, pd.DataFrame] = {}
@@ -386,8 +467,6 @@ def _apply_filters(data: dict[str, pd.DataFrame], filters: dict[str, list[str] |
             result = result[result["site"].astype(str).isin(sites)]
         if teams and name == "pain" and "user_team" in result.columns:
             result = result[result["user_team"].astype(str).isin(teams)]
-        if systems and name == "finance" and "category" in result.columns:
-            result = result[result["category"].astype(str).isin(systems)]
         if sites and name == "risk_contrib" and "site" in result.columns:
             result = result[result["site"].astype(str).isin(sites)]
         if name == "adoption" and "week_num" in result.columns:
@@ -397,12 +476,345 @@ def _apply_filters(data: dict[str, pd.DataFrame], filters: dict[str, list[str] |
     return filtered
 
 
-def main() -> None:
-    """Run Streamlit app."""
-    _inject_styles()
-    st.markdown("<div class='main-title'>Tesla FDE Deployment Monitoring Dashboard</div>", unsafe_allow_html=True)
+def _sync_click_state(sidebar_sites: list[str]) -> None:
+    """Clear the click override whenever the sidebar site selection changes."""
+    if _SS_CLICK not in st.session_state:
+        st.session_state[_SS_CLICK] = None
+    prev = st.session_state.get(_SS_PREV_SIDEBAR)
+    cur = list(sidebar_sites)
+    if prev is None:
+        st.session_state[_SS_PREV_SIDEBAR] = cur
+    elif prev != cur:
+        st.session_state[_SS_CLICK] = None
+        st.session_state[_SS_PREV_SIDEBAR] = cur
+
+
+def _compute_focus_state(
+    filtered: dict[str, pd.DataFrame],
+    filters: dict[str, list[str] | tuple[float, float]],
+    clicked_site: str | None,
+) -> FocusState:
+    """
+    Priority (highest to lowest):
+      1. Click override (if clicked site is present in current ranking slice)
+      2. Filtered ranking contains exactly one site → auto-focus
+      3. Sidebar: 1 site selected → that site
+      4. Sidebar: N sites → highest-risk among them
+      5. Sidebar: 0 sites → highest-risk overall (portfolio)
+    """
+    sites = tuple(str(s) for s in filters["sites"])
+    if filtered["ranking"].empty:
+        return FocusState("portfolio", sites, "", 0.0, "none")
+    rk = filtered["ranking"].sort_values("problem_score", ascending=False)
+
+    if clicked_site:
+        m = rk[rk["site"].astype(str) == str(clicked_site)]
+        if not m.empty:
+            return FocusState(
+                "single", (str(clicked_site),),
+                str(clicked_site), float(m["problem_score"].iloc[0]),
+                "click",
+            )
+
+    if len(rk) == 1:
+        row = rk.iloc[0]
+        return FocusState("single", sites, str(row["site"]), float(row["problem_score"]), "auto")
+
+    if len(sites) == 0:
+        row = rk.iloc[0]
+        return FocusState("portfolio", sites, str(row["site"]), float(row["problem_score"]), "portfolio")
+    if len(sites) == 1:
+        s = str(sites[0])
+        m = rk[rk["site"].astype(str) == s]
+        sc = float(m["problem_score"].iloc[0]) if not m.empty else 0.0
+        return FocusState("single", sites, s, sc, "sidebar_single")
+    sub = rk[rk["site"].astype(str).isin(sites)]
+    row = (sub if not sub.empty else rk).iloc[0]
+    return FocusState("multi", sites, str(row["site"]), float(row["problem_score"]), "sidebar_multi")
+
+
+def _main_driver(filtered: dict[str, pd.DataFrame], site: str) -> tuple[str, str]:
+    if not site or filtered["risk_contrib"].empty:
+        return "", "Mixed drivers"
+    sub = filtered["risk_contrib"][filtered["risk_contrib"]["site"].astype(str) == site]
+    if sub.empty:
+        # Fall back to full (unfiltered-by-sidebar) contribution for the clicked site.
+        return "", "Mixed drivers"
+    by_c = sub.groupby("component")["component_score"].sum().sort_values(ascending=False)
+    top = str(by_c.index[0])
+    second = str(by_c.index[1]) if len(by_c) > 1 else ""
+    if top == "delay_impact" or (top == "disruption_cost" and second == "delay_impact"):
+        return top, "Delay-driven cost escalation"
+    return top, _MAIN_DRIVER_SUMMARY.get(top, _RISK_SCORE_COMPONENT_LABELS.get(top, top))
+
+
+def _most_affected_role(filtered: dict[str, pd.DataFrame], site: str) -> str:
+    if not site or filtered["pain"].empty:
+        return "Site lead + PMO"
+    pt = filtered["pain"][filtered["pain"]["site"].astype(str) == site].copy()
+    if pt.empty:
+        return "Site lead + PMO"
+    hp = pd.to_numeric(pt.get("high_priority_unresolved", 0), errors="coerce").fillna(0)
+    ur = pd.to_numeric(pt.get("unresolved_feedback", 0), errors="coerce").fillna(0)
+    pt = pt.assign(_p=hp * 2 + ur).sort_values("_p", ascending=False)
+    return str(pt.iloc[0]["user_team"])
+
+
+def _decision_context(
+    data: dict[str, pd.DataFrame],
+    filtered: dict[str, pd.DataFrame],
+    focus: FocusState,
+) -> dict[str, str]:
+    """Build the decision block.
+
+    When focus comes from a click, sidebar filters may have excluded the clicked
+    site from filtered ``risk_contrib`` / ``events`` / ``pain``. In that case we
+    fall back to the *unfiltered* data for that site so the cards actually reflect it.
+    """
+    site, score = focus.focus_site, focus.focus_score
+    use_unfiltered = focus.source == "click" and (
+        site not in set(filtered["ranking"]["site"].astype(str).unique())
+        if not filtered["ranking"].empty else False
+    )
+    src = data if use_unfiltered else filtered
+
+    driver_key, driver_phrase = _main_driver(src, site)
+    role = _most_affected_role(src, site)
+    action = (
+        _ACTION_STRIP_SHORT.get(driver_key, "Steering touchpoint + single owner")
+        if driver_key else "Adjust filters"
+    )
+
+    cost_val = 0.0
+    delay_val = 0.0
+    if site and not src["events"].empty:
+        ev = src["events"][src["events"]["site"].astype(str) == site]
+        if not ev.empty:
+            row = ev.iloc[0]
+            cost_val = float(row["total_cost_impact"])
+            delay_val = float(row["total_days_impact"])
+
+    main_issue = (
+        f"${cost_val:,.0f} disruption · {delay_val:.0f} delay-days"
+        if (cost_val or delay_val) else f"Composite risk {score:.2f} in this view"
+    )
+
+    if driver_key in ("disruption_cost", "delay_impact"):
+        why_now = "Highest combined cost + schedule exposure in this slice"
+    elif driver_key == "budget_variance":
+        why_now = "Budget drift is running ahead of controls"
+    elif driver_key == "adoption_friction":
+        why_now = "Blocked-user rate trending above peer sites"
+    elif driver_key == "unresolved_issues":
+        why_now = "High-priority feedback is still open past SLA"
+    elif driver_key == "reporting_completeness_penalty":
+        why_now = "Reporting gaps are masking real status"
+    else:
+        why_now = "Top composite risk in the current filter slice"
+
+    return {
+        "site": site or "—",
+        "score": f"{score:.2f}" if site else "—",
+        "driver": driver_phrase,
+        "role": role,
+        "action": action,
+        "main_issue": main_issue,
+        "why_now": why_now,
+    }
+
+
+def _render_mode_label(focus: FocusState) -> None:
+    if focus.mode == "single":
+        source_tag = {
+            "click": "from click",
+            "sidebar_single": "from filter",
+            "auto": "auto-focused",
+        }.get(focus.source, "")
+        st.markdown(
+            f"""
+            <div class="mode-label deepdive">
+                <span class="pill">Site Deep Dive</span>
+                &nbsp;<span class="site">{focus.focus_site}</span>
+                <span style="color:#94A3B8;font-weight:500">&nbsp;·&nbsp;{source_tag}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    elif focus.mode == "multi":
+        st.markdown(
+            f"""
+            <div class="mode-label deepdive">
+                <span class="pill">Compare {len(focus.selected_sites)} sites</span>
+                &nbsp;anchor: <span class="site">{focus.focus_site}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            """
+            <div class="mode-label">
+                <span class="pill">Portfolio View</span>
+                <span style="color:#94A3B8;font-weight:500">&nbsp;· click a bar or a point to deep-dive</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_focus_banner(focus: FocusState, ctx: dict[str, str]) -> None:
+    site = ctx["site"]
+    score = ctx["score"]
+    if focus.mode == "portfolio":
+        cls, pill = "focus-banner portfolio", "Portfolio view"
+        text = (
+            f"Showing all sites. Narrative anchor: <b>{site}</b> "
+            f"(highest composite risk, {score}). Click a point/bar or pick a site to zoom in."
+        )
+    elif focus.mode == "single":
+        cls, pill = "focus-banner", "Site diagnosis"
+        text = (
+            f"Locked on <b>{site}</b> — composite risk {score}. "
+            f"All charts, KPIs, and the action below are specific to this site."
+        )
+    else:
+        cls, pill = "focus-banner", f"{len(focus.selected_sites)} sites"
+        text = (
+            f"Comparing {len(focus.selected_sites)} sites. Anchor: <b>{site}</b> "
+            f"(highest composite, {score})."
+        )
     st.markdown(
-        "<div class='app-subtitle'>Deployment performance, intervention priority, and explainable site ranking.</div>",
+        f"""
+        <div class="{cls}">
+            <div class="pill">{pill}</div>
+            <div class="text">{text}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_decision_strip(ctx: dict[str, str]) -> None:
+    cols = st.columns(4, gap="medium")
+    cards = [
+        ("Priority site", ctx["site"], True),
+        ("Main driver", ctx["driver"], False),
+        ("Most affected role", ctx["role"], False),
+        ("Recommended action", ctx["action"], False),
+    ]
+    for col, (lbl, val, is_focus) in zip(cols, cards):
+        with col:
+            cls = "kpi-card focus" if is_focus else "kpi-card"
+            st.markdown(
+                f"""
+                <div class="{cls}">
+                    <div class="kpi-label">{lbl}</div>
+                    <div class="kpi-value">{val}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def _render_action_block(ctx: dict[str, str]) -> None:
+    if ctx["site"] == "—":
+        st.caption("No ranking in this slice — widen filters.")
+        return
+    who = ctx["role"] if ctx["role"] not in ("—", "No team slice in view") else "Site lead + PMO"
+    st.markdown(
+        f"- **Focus site:** {ctx['site']}  \n"
+        f"- **Main issue:** {ctx['main_issue']}  \n"
+        f"- **Why now:** {ctx['why_now']}  \n"
+        f"- **Who to engage:** {who}  \n"
+        f"- **Immediate move:** {ctx['action']} on {ctx['site']} this week"
+    )
+
+
+def _render_affected_card(
+    data: dict[str, pd.DataFrame],
+    filtered: dict[str, pd.DataFrame],
+    focus: FocusState,
+) -> None:
+    site = focus.focus_site
+    # Use unfiltered pain if click landed outside current sidebar scope — keeps the card site-specific.
+    src_pain = (
+        data["pain"]
+        if focus.source == "click" and not filtered["pain"].empty and
+           site not in set(filtered["pain"]["site"].astype(str).unique())
+        else filtered["pain"]
+    )
+    header = f"Affected at <b style='color:{_FOCUS_COLOR}'>{site}</b>" if site else "Affected (portfolio)"
+
+    if src_pain.empty or not site:
+        st.markdown(
+            f"""
+            <div class="affected-card">
+                <h4>{header}</h4>
+                <div class="muted">No feedback data for current filters.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return
+
+    site_pain = src_pain[src_pain["site"].astype(str) == str(site)].copy()
+    if site_pain.empty:
+        site_pain = src_pain.copy()
+        header = "Affected (portfolio — no rows at focus)"
+
+    total_teams = int(site_pain["user_team"].nunique())
+    unresolved = int(pd.to_numeric(site_pain["unresolved_feedback"], errors="coerce").fillna(0).sum())
+    missing_status = int(pd.to_numeric(site_pain["missing_status_count"], errors="coerce").fillna(0).sum())
+    high_pri = int(pd.to_numeric(site_pain["high_priority_unresolved"], errors="coerce").fillna(0).sum())
+
+    site_pain = site_pain.assign(
+        _severity=(
+            pd.to_numeric(site_pain["high_priority_unresolved"], errors="coerce").fillna(0) * 3
+            + pd.to_numeric(site_pain["unresolved_feedback"], errors="coerce").fillna(0) * 2
+            + pd.to_numeric(site_pain["missing_status_count"], errors="coerce").fillna(0)
+        )
+    )
+    top_teams = site_pain.sort_values(["_severity", "user_team"], ascending=[False, True]).head(5)
+    rows_html = "".join(
+        f"<li><b>{row['user_team']}</b> — {row['feedback_type']}"
+        + (
+            "  ·  <span style='color:#B91C1C'>unresolved</span>"
+            if int(pd.to_numeric(row.get("unresolved_feedback", 0), errors="coerce") or 0) > 0 else ""
+        )
+        + (
+            "  ·  <span style='color:#64748B'>status missing</span>"
+            if int(pd.to_numeric(row.get("missing_status_count", 0), errors="coerce") or 0) > 0 else ""
+        )
+        + "</li>"
+        for _, row in top_teams.iterrows()
+    )
+    if not rows_html:
+        rows_html = "<li class='muted'>No teams flagged.</li>"
+
+    st.markdown(
+        f"""
+        <div class="affected-card">
+            <h4>{header}</h4>
+            <div class="stat-row"><span>Teams raising feedback</span><span class="v">{total_teams}</span></div>
+            <div class="stat-row"><span>Unresolved items</span><span class="v">{unresolved}</span></div>
+            <div class="stat-row"><span>Missing status</span><span class="v">{missing_status}</span></div>
+            <div class="stat-row"><span>High-priority open</span><span class="v">{high_pri}</span></div>
+            <div style="margin-top:10px;font-size:0.82rem;color:#64748B;">Top teams (severity-ranked)</div>
+            <ul>{rows_html}</ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def main() -> None:
+    _inject_styles()
+    st.markdown(
+        "<div class='main-title'>Tesla FDE Deployment Monitoring Dashboard</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div class='app-subtitle'>The problem → where it's worst → why it's risky → who's affected → what to do.</div>",
         unsafe_allow_html=True,
     )
 
@@ -411,266 +823,174 @@ def main() -> None:
     data = _ensure_data_ready(cleaned_dir)
 
     filters = _build_sidebar_filters(data)
+    _sync_click_state(filters["sites"])  # clear click override when sidebar changes
+
     filtered = _apply_filters(data, filters)
 
-    st.markdown("<div class='section-header'>Key Metrics</div>", unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4, gap="medium")
+    # Reserve the top slots; they are filled AFTER the clickable charts so any click
+    # this run is already reflected in the banner / strip / mode label.
+    mode_slot = st.empty()
+    banner_slot = st.empty()
+    strip_slot = st.empty()
 
-    total_disruption_cost = filtered["events"]["total_cost_impact"].sum() if not filtered["events"].empty else 0
-    avg_blocked_rate = filtered["adoption"]["blocked_rate"].mean() if not filtered["adoption"].empty else 0
-    high_priority_open = (
-        filtered["pain"]["high_priority_unresolved"].sum() if not filtered["pain"].empty else 0
+    st.markdown(
+        "<div class='section-header'>Where it's worst · why it's risky</div>",
+        unsafe_allow_html=True,
     )
-    top_score = filtered["ranking"]["problem_score"].max() if not filtered["ranking"].empty else 0
-
-    with c1:
-        _kpi_card("Total disruption cost", f"${total_disruption_cost:,.0f}")
-    with c2:
-        _kpi_card("Avg. blocked-user rate", f"{avg_blocked_rate:.1%}")
-    with c3:
-        _kpi_card("High-priority open (count)", f"{int(high_priority_open)}")
-    with c4:
-        _kpi_card("Highest composite risk score", f"{top_score:.2f}")
-
-    st.markdown("<div class='section-header'>Where deployment performance broke down</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div class='hint'>Click any bar or scatter point to deep-dive that site.</div>",
+        unsafe_allow_html=True,
+    )
     col_left, col_right = st.columns(2, gap="medium")
 
-    with col_left:
-        if not filtered["events"].empty:
-            fig_events = px.scatter(
-                filtered["events"],
-                x="total_days_impact",
-                y="total_cost_impact",
-                size="events_count",
-                color="delay_event_rate",
-                hover_name="site",
-                color_continuous_scale="YlOrRd",
-                title="",
-                labels={
-                    "total_days_impact": "Total delay impact (days)",
-                    "total_cost_impact": "Total disruption cost ($)",
-                    "delay_event_rate": "Delay-like share of events",
-                },
-            )
-            fig_events.update_traces(marker=dict(line=dict(width=0.5, color="#FFFFFF")))
-            _apply_light_chart(
-                fig_events, title="Delays vs. cost impact by site", legend_below=False, extra_right=32
-            )
-            _style_colorbar(fig_events, title="Delay-like share")
-            st.plotly_chart(fig_events, use_container_width=True)
-        else:
-            st.info("No deployment event data for current filters.")
+    # We have to compute a provisional focus_site for highlighting BEFORE we know
+    # whether a click just happened this run. Using the current click state is fine:
+    # if the user clicks a new site, the script reruns with the updated state on
+    # the NEXT pass — and since the charts are re-rendered on every rerun, the
+    # highlight updates immediately for the viewer.
+    current_click = st.session_state.get(_SS_CLICK)
+    provisional_focus = _compute_focus_state(filtered, filters, current_click)
+    focus_site_pre = provisional_focus.focus_site
+
+    ranking_event = None
+    scatter_event = None
 
     with col_right:
         if not filtered["ranking"].empty:
-            ranking_plot = filtered["ranking"].sort_values("problem_score", ascending=False).head(10)
-            fig_rank = px.bar(
-                ranking_plot,
-                x="problem_score",
-                y="site",
-                orientation="h",
-                title="",
-                labels={"problem_score": "Composite score (directional)", "site": "Site"},
-                color="problem_score",
-                color_continuous_scale="OrRd",
+            ranking_plot = (
+                filtered["ranking"].sort_values("problem_score", ascending=False).head(10)
             )
-            fig_rank.update_traces(marker_line_width=0)
-            _apply_light_chart(
-                fig_rank, title="Site risk prioritization", legend_below=False, extra_right=28, extra_left=24
+            bar_colors = [
+                _FOCUS_COLOR if str(s) == str(focus_site_pre) else _MUTED_COLOR
+                for s in ranking_plot["site"]
+            ]
+            text_labels = [f"{v:.2f}" for v in ranking_plot["problem_score"]]
+            fig_rank = go.Figure(
+                go.Bar(
+                    x=ranking_plot["problem_score"],
+                    y=ranking_plot["site"],
+                    orientation="h",
+                    marker=dict(color=bar_colors, line=dict(width=0)),
+                    text=text_labels,
+                    textposition="outside",
+                    textfont=dict(size=11, color="#0F172A"),
+                    cliponaxis=False,
+                    hovertemplate="<b>%{y}</b><br>Composite risk: %{x:.2f}<br><i>click to deep-dive</i><extra></extra>",
+                )
             )
-            _style_colorbar(fig_rank, title="Composite score")
-            st.plotly_chart(fig_rank, use_container_width=True)
+            fig_rank.update_layout(
+                xaxis_title="Composite risk score",
+                yaxis_title="",
+                yaxis=dict(autorange="reversed"),
+            )
+            ranking_event = render_chart(
+                fig_rank,
+                title="Where to act first",
+                height=420,
+                margin={"l": 92, "r": 44, "t": 48, "b": 46},
+                selectable=True,
+                key="ranking_chart",
+            )
         else:
             st.info("No ranking data for current filters.")
 
-    st.markdown("<div class='section-header'>Where to prioritize intervention</div>", unsafe_allow_html=True)
-    col_a, col_b = st.columns(2, gap="medium")
+    with col_left:
+        if not filtered["events"].empty:
+            fig_scatter = _build_delay_cost_scatter(filtered["events"], focus_site_pre)
+            scatter_event = render_chart(
+                fig_scatter,
+                title="Why it's risky: delay vs. disruption cost",
+                height=420,
+                margin={"l": 62, "r": 110, "t": 48, "b": 52},
+                selectable=True,
+                key="scatter_chart",
+            )
+        else:
+            st.info("No deployment event data for current filters.")
+
+    # --- Resolve click events (if any) and recompute focus before rendering the rest. ---
+    new_click: str | None = None
+    from_scatter = _click_site_from_event(scatter_event, source="scatter")
+    from_ranking = _click_site_from_event(ranking_event, source="ranking")
+    if from_scatter:
+        new_click = from_scatter
+    elif from_ranking:
+        new_click = from_ranking
+
+    if new_click and new_click != current_click:
+        st.session_state[_SS_CLICK] = new_click
+        st.rerun()
+
+    focus = provisional_focus  # no new click this pass
+    ctx = _decision_context(data, filtered, focus)
+
+    # Fill the top slots with the now-resolved focus.
+    with mode_slot.container():
+        _render_mode_label(focus)
+    with banner_slot.container():
+        _render_focus_banner(focus, ctx)
+    with strip_slot.container():
+        _render_decision_strip(ctx)
+
+    # ---- Who is affected ----
+    st.markdown("<div class='section-header'>Who is affected?</div>", unsafe_allow_html=True)
+    col_a, col_b = st.columns([1, 1.2], gap="medium")
 
     with col_a:
-        if not filtered["pain"].empty:
-            pain_base = filtered["pain"].copy()
-            hp_max = pd.to_numeric(pain_base["high_priority_unresolved"], errors="coerce").max()
-            if pd.isna(hp_max):
-                hp_max = 0.0
-            use_hp_bars = float(hp_max) >= 2.0
-            if use_hp_bars:
-                pain_plot = pain_base.sort_values(
-                    ["high_priority_unresolved", "unresolved_rate"], ascending=False
-                ).head(12)
-            else:
-                pain_plot = pain_base.sort_values(
-                    ["unresolved_feedback", "unresolved_rate"], ascending=False
-                ).head(12)
-            pain_plot = pain_plot.assign(
-                team_label=pain_plot["site"].astype(str) + " · " + pain_plot["user_team"].astype(str)
-            )
-            if use_hp_bars:
-                fig_pain = px.bar(
-                    pain_plot,
-                    x="high_priority_unresolved",
-                    y="team_label",
-                    orientation="h",
-                    title="",
-                    labels={
-                        "high_priority_unresolved": "Count (high-priority, unresolved)",
-                        "team_label": "Site · team",
-                    },
-                    color="unresolved_rate",
-                    color_continuous_scale="YlOrRd",
-                )
-                pain_title = "High-priority open backlog by site and team"
-                cbar_title = "Share unresolved"
-            else:
-                fig_pain = px.bar(
-                    pain_plot,
-                    x="unresolved_feedback",
-                    y="team_label",
-                    orientation="h",
-                    title="",
-                    labels={
-                        "unresolved_feedback": "Unresolved items",
-                        "team_label": "Site · team",
-                    },
-                    color="unresolved_rate",
-                    color_continuous_scale="YlOrRd",
-                )
-                pain_title = "Role-based coordination friction"
-                cbar_title = "Share unresolved"
-            fig_pain.update_traces(marker_line_width=0)
-            _apply_light_chart(fig_pain, title=pain_title, legend_below=False, extra_right=28, extra_left=96)
-            _style_colorbar(fig_pain, title=cbar_title)
-            st.plotly_chart(fig_pain, use_container_width=True)
-        else:
-            st.info("No feedback data for current filters.")
+        _render_affected_card(data, filtered, focus)
 
     with col_b:
         if not filtered["adoption"].empty:
             adoption_plot = filtered["adoption"].dropna(subset=["week_num"]).copy()
             if not adoption_plot.empty:
+                sites_in_plot = adoption_plot["site"].astype(str).unique().tolist()
+                color_map = {
+                    s: (_FOCUS_COLOR if s == str(focus.focus_site) else _MUTED_COLOR)
+                    for s in sites_in_plot
+                }
                 fig_adoption = px.line(
                     adoption_plot,
                     x="week_num",
                     y="blocked_rate",
                     color="site",
                     markers=True,
-                    title="",
-                    labels={"week_num": "Week #", "blocked_rate": "Blocked / trained users"},
-                    color_discrete_sequence=px.colors.qualitative.Set2,
+                    labels={"week_num": "Deployment week", "blocked_rate": "Blocked user rate"},
+                    color_discrete_map=color_map,
                 )
+                for tr in fig_adoption.data:
+                    name = str(getattr(tr, "name", "") or "")
+                    if name == str(focus.focus_site):
+                        tr.update(line=dict(width=4), opacity=1.0, marker=dict(size=8))
+                    else:
+                        tr.update(line=dict(width=1.5), opacity=0.35, marker=dict(size=4))
                 fig_adoption.update_yaxes(tickformat=".0%")
-                _apply_light_chart(
+
+                if focus.focus_site:
+                    f_df = adoption_plot[adoption_plot["site"].astype(str) == str(focus.focus_site)].sort_values("week_num")
+                    if not f_df.empty:
+                        fig_adoption.add_annotation(
+                            x=float(f_df["week_num"].iloc[-1]),
+                            y=float(f_df["blocked_rate"].iloc[-1]),
+                            text=f"<b>{focus.focus_site}</b>",
+                            showarrow=False, xshift=8, yshift=10,
+                            font=dict(size=12, color=_FOCUS_COLOR),
+                            bgcolor="rgba(255,255,255,0.9)",
+                            bordercolor=_FOCUS_COLOR, borderwidth=1, borderpad=3,
+                        )
+                render_chart(
                     fig_adoption,
-                    title="Adoption friction over time by site",
-                    legend_below=True,
+                    title="Adoption trend: blocked-user rate by week",
+                    height=420,
+                    margin={"l": 64, "r": 44, "t": 48, "b": 52},
                 )
-                st.plotly_chart(fig_adoption, use_container_width=True)
             else:
                 st.info("No week-level adoption rows for current filters.")
         else:
             st.info("No adoption data for current filters.")
 
-    st.markdown("<div class='section-header'>Sites to prioritize for review</div>", unsafe_allow_html=True)
-    if not filtered["finance"].empty and not filtered["events"].empty:
-        event_site = filtered["events"][["site", "total_cost_impact", "total_days_impact"]].copy()
-        finance_site = filtered["finance"].groupby("site", as_index=False)["variance"].sum()
-        table_df = event_site.merge(finance_site, on="site", how="outer").fillna(0)
-        table_df["priority_index"] = (
-            table_df["total_cost_impact"].rank(pct=True)
-            + table_df["total_days_impact"].rank(pct=True)
-            + table_df["variance"].rank(pct=True)
-        )
-        table_df = table_df.sort_values("priority_index", ascending=False).head(10)
-        table_df = table_df.rename(
-            columns={
-                "site": "Site",
-                "total_cost_impact": "Disruption Cost ($)",
-                "total_days_impact": "Delay Impact (Days)",
-                "variance": "Budget Variance ($)",
-                "priority_index": "Review Priority Index",
-            }
-        )
-        table_df = table_df.round(
-            {
-                "Disruption Cost ($)": 0,
-                "Delay Impact (Days)": 1,
-                "Budget Variance ($)": 0,
-                "Review Priority Index": 2,
-            }
-        )
-        styled_table = _style_top_risk_sites_table(table_df)
-        st.dataframe(styled_table, use_container_width=True, hide_index=True)
-    else:
-        st.info("Risk table unavailable for current filters.")
-
-    st.markdown("<div class='section-header'>Why site ranking is explainable</div>", unsafe_allow_html=True)
-    if not filtered["risk_contrib"].empty:
-        contrib = filtered["risk_contrib"].copy()
-        contrib["component_label"] = contrib["component"].map(_RISK_SCORE_COMPONENT_LABELS).fillna(
-            contrib["component"].astype(str)
-        )
-        contrib_plot = contrib.merge(
-            filtered["ranking"][["site", "problem_score"]],
-            on="site",
-            how="left",
-        ).sort_values("problem_score", ascending=False)
-
-        fig_contrib = px.bar(
-            contrib_plot,
-            x="site",
-            y="component_score",
-            color="component_label",
-            title="",
-            barmode="stack",
-            labels={
-                "site": "Site",
-                "component_score": "Score contribution",
-                "component_label": "Factor",
-            },
-            color_discrete_map={
-                "Disruption Cost ($)": "#EA580C",
-                "Delay Impact (Days)": "#F97316",
-                "Budget Variance": "#F59E0B",
-                "High-Priority Open Items": "#DC2626",
-                "Blocked User Rate": "#2563EB",
-                "Reporting Completeness Penalty": "#64748B",
-            },
-        )
-        fig_contrib.update_traces(marker_line_width=0)
-        fig_contrib.update_layout(bargap=0.28)
-        _apply_light_chart(
-            fig_contrib,
-            title="Drivers of site risk score",
-            legend_below=True,
-        )
-        fig_contrib.update_xaxes(categoryorder="array", categoryarray=contrib_plot["site"].drop_duplicates().tolist())
-        st.plotly_chart(fig_contrib, use_container_width=True)
-
-        contrib_table = (
-            contrib.pivot_table(
-                index=["site", "site_family"],
-                columns="component_label",
-                values="component_score",
-                aggfunc="sum",
-                fill_value=0,
-            )
-            .reset_index()
-            .merge(filtered["ranking"][["site", "problem_score"]], on="site", how="left")
-            .sort_values("problem_score", ascending=False)
-            .rename(
-                columns={
-                    "site": "Site",
-                    "site_family": "Site Family",
-                    "problem_score": "Composite Risk Score",
-                }
-            )
-        )
-        numeric_cols = [c for c in contrib_table.columns if c not in ("Site", "Site Family")]
-        round_spec = {c: 2 for c in numeric_cols}
-        contrib_rounded = contrib_table.round(round_spec)
-        contrib_styled = _style_risk_breakdown_table(contrib_rounded, total_col="Composite Risk Score")
-        st.dataframe(contrib_styled, use_container_width=True, hide_index=True)
-    else:
-        st.info("Risk score breakdown is unavailable for current filters.")
+    # ---- What to do next ----
+    st.markdown("<div class='section-header'>What to do next</div>", unsafe_allow_html=True)
+    _render_action_block(ctx)
 
 
 if __name__ == "__main__":

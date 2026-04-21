@@ -1,0 +1,9 @@
+# Light presentation theme — fixes Glide dataframe header (not styleable via HTML/CSS alone).
+[theme]
+base = "light"
+backgroundColor = "#F7F9FB"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#111827"
+borderColor = "#D9E2EC"
+dataframeHeaderBackgroundColor = "#F3F4F6"
+dataframeBorderColor = "#E5E7EB"
