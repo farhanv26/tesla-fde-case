@@ -1,0 +1,7 @@
+field,defect,rows_affected,impact
+Project,Missing / blank,1,Would not import — required for Area/System root node.
+Area/System,Missing / blank,1,Scope orphaned from Area/System hierarchy.
+Labor Cost,"Mixed format ($, commas, k/M suffixes)",13,Numeric parser would need pre-processing before load.
+Material Cost,"Mixed format ($, commas, k/M suffixes)",6,Numeric parser would need pre-processing before load.
+Rental Cost,"Mixed format ($, commas, k/M suffixes)",2,Numeric parser would need pre-processing before load.
+Material Quantity,"Mixed format ($, commas, k/M suffixes)",18,Numeric parser would need pre-processing before load.

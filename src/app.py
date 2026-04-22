@@ -46,8 +46,14 @@ _ACTION_STRIP_SHORT: dict[str, str] = {
     "reporting_completeness_penalty": "Lock weekly reporting + sign-off",
 }
 
-_FOCUS_COLOR = "#1D4ED8"
-_MUTED_COLOR = "#CBD5E1"
+_FOCUS_COLOR = "#E31937"          # Tesla red
+_MUTED_COLOR = "#606060"          # mid gray for non-focused series on dark bg
+_TEXT_PRIMARY = "#F5F5F5"
+_TEXT_SECONDARY = "#A0A0A0"
+_BG_PAGE = "#0A0A0A"
+_BG_CARD = "#151515"
+_BORDER = "#262626"
+_GOOD = "#7FB069"                 # under-target green (used for duration bars)
 
 _PLOTLY_CONFIG: dict = {
     "displayModeBar": False,
@@ -72,142 +78,216 @@ class FocusState:
 
 
 def _inject_styles() -> None:
-    """Light presentation theme. Nothing here controls chart height — Plotly owns that."""
+    """Tesla-themed dark presentation surface."""
     st.markdown(
         """
         <style>
             :root {
-                --bg-main: #F7F9FB;
-                --text-primary: #0F172A;
-                --text-secondary: #334155;
-                --border-soft: #D9E2EC;
-                --focus: #1D4ED8;
+                --bg-page: #0A0A0A;
+                --bg-card: #151515;
+                --bg-elev: #1E1E1E;
+                --border: #262626;
+                --border-strong: #3A3A3A;
+                --text-primary: #F5F5F5;
+                --text-secondary: #A0A0A0;
+                --text-dim: #707070;
+                --accent: #E31937;
+                --accent-dim: #8E0F1F;
+                --ok: #7FB069;
             }
-            * { font-family: Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-            .stApp { background-color: var(--bg-main); color: var(--text-primary); }
-            .stApp, [data-testid="stAppViewContainer"] { color-scheme: light; }
+            * { font-family: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+            .stApp { background-color: var(--bg-page); color: var(--text-primary); }
+            .stApp, [data-testid="stAppViewContainer"] { color-scheme: dark; }
             .stApp [data-testid="stMarkdownContainer"] p,
-            .stApp [data-testid="stMarkdownContainer"] li { color: #0F172A; }
-            .block-container { padding-top: 0.5rem; padding-bottom: 0.75rem; max-width: 1450px; }
-            h1, h2, h3 { color: var(--text-primary); letter-spacing: 0.2px; }
-            .main-title {
-                text-align: center; font-size: 1.65rem; font-weight: 750;
-                color: #0B1733; margin-bottom: 0.05rem;
+            .stApp [data-testid="stMarkdownContainer"] li,
+            .stApp [data-testid="stMarkdownContainer"] strong,
+            .stApp [data-testid="stMarkdownContainer"] b { color: var(--text-primary); }
+            .block-container { padding-top: 0.75rem; padding-bottom: 1rem; max-width: 1480px; }
+            h1, h2, h3 { color: var(--text-primary); letter-spacing: 0.2px; font-weight: 600; }
+
+            .brand-row {
+                display: flex; align-items: center; justify-content: space-between;
+                padding: 2px 4px 10px 4px;
+                border-bottom: 1px solid var(--border);
+                margin-bottom: 14px;
             }
-            .app-subtitle {
-                color: var(--text-secondary); margin: -2px 0 6px 0;
-                font-size: 0.88rem; text-align: center;
+            .brand-left {
+                display: flex; align-items: center; gap: 14px;
             }
+            .brand-mark {
+                font-size: 1.35rem; font-weight: 800; letter-spacing: 0.32em;
+                color: var(--accent);
+            }
+            .brand-pipe {
+                width: 1px; height: 28px; background: var(--border-strong);
+            }
+            .brand-product {
+                font-size: 0.95rem; font-weight: 600;
+                color: var(--text-primary); letter-spacing: 0.02em;
+            }
+            .brand-product .muted { color: var(--text-secondary); font-weight: 400; }
+            .brand-right {
+                font-size: 0.72rem; color: var(--text-dim);
+                letter-spacing: 0.14em; text-transform: uppercase;
+            }
+
             .mode-label {
-                text-align: center;
-                margin: 0 0 6px 0;
-                font-size: 0.78rem;
-                letter-spacing: 0.08em;
+                text-align: left;
+                margin: 2px 0 8px 0;
+                font-size: 0.72rem;
+                letter-spacing: 0.14em;
                 text-transform: uppercase;
-                font-weight: 700;
+                font-weight: 600;
+                color: var(--text-secondary);
             }
             .mode-label .pill {
                 display: inline-block;
-                padding: 3px 12px;
-                border-radius: 999px;
+                padding: 3px 11px;
+                border-radius: 2px;
                 color: #FFFFFF;
-                background: #64748B;
+                background: var(--border-strong);
+                letter-spacing: 0.12em;
+                font-size: 0.68rem;
+                margin-right: 10px;
             }
-            .mode-label.deepdive .pill { background: var(--focus); }
-            .mode-label .site { color: var(--focus); font-weight: 700; }
+            .mode-label.deepdive .pill { background: var(--accent); }
+            .mode-label .site { color: var(--accent); font-weight: 700; letter-spacing: 0.04em; text-transform: none; }
+
             .section-header {
-                font-size: 1rem; font-weight: 650; color: #13233F;
-                padding: 0.25rem 0.2rem;
-                border-bottom: 1px solid var(--border-soft);
-                margin: 0.5rem 0 0.35rem 0;
+                font-size: 0.72rem; font-weight: 600;
+                color: var(--text-secondary);
+                letter-spacing: 0.22em;
+                text-transform: uppercase;
+                padding: 0.4rem 0.2rem 0.3rem 0.2rem;
+                border-bottom: 1px solid var(--border);
+                margin: 0.95rem 0 0.55rem 0;
             }
-            .hint {
-                color: #64748B; font-size: 0.78rem; margin: -2px 0 6px 2px;
-            }
+            .hint { color: var(--text-dim); font-size: 0.76rem; margin: 0 0 10px 2px; }
 
             .focus-banner {
                 display: flex; align-items: center; gap: 14px;
-                border-radius: 12px; padding: 10px 16px;
-                margin: 0.3rem 0 0.55rem 0;
-                border: 1px solid #BFDBFE;
-                background: linear-gradient(180deg, #EFF6FF 0%, #FFFFFF 100%);
+                border-radius: 4px; padding: 12px 16px;
+                margin: 0.2rem 0 0.55rem 0;
+                border: 1px solid var(--accent-dim);
+                background: linear-gradient(180deg, rgba(227,25,55,0.08) 0%, rgba(227,25,55,0.02) 100%);
             }
             .focus-banner.portfolio {
-                border-color: #E2E8F0;
-                background: linear-gradient(180deg, #F8FAFC 0%, #FFFFFF 100%);
+                border-color: var(--border-strong);
+                background: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0) 100%);
             }
             .focus-banner .pill {
-                font-size: 0.7rem; text-transform: uppercase;
-                letter-spacing: 0.08em; font-weight: 700;
-                color: #FFFFFF; background: var(--focus);
-                padding: 4px 10px; border-radius: 999px;
+                font-size: 0.66rem; text-transform: uppercase;
+                letter-spacing: 0.16em; font-weight: 700;
+                color: #FFFFFF; background: var(--accent);
+                padding: 4px 10px; border-radius: 2px;
             }
-            .focus-banner.portfolio .pill { background: #64748B; }
+            .focus-banner.portfolio .pill { background: var(--border-strong); }
             .focus-banner .text {
-                color: #0B1733; font-size: 0.98rem; line-height: 1.35;
+                color: var(--text-primary); font-size: 0.96rem; line-height: 1.45;
             }
-            .focus-banner .text b { color: var(--focus); }
+            .focus-banner .text b { color: var(--accent); }
 
             .kpi-card {
-                border: 1px solid var(--border-soft);
-                border-radius: 10px;
-                padding: 10px 14px;
-                background: #FFFFFF;
-                height: 88px;
+                border: 1px solid var(--border);
+                border-radius: 4px;
+                padding: 12px 16px;
+                background: var(--bg-card);
+                height: 94px;
                 display: flex; flex-direction: column; justify-content: center;
-                box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
             }
             .kpi-card.focus {
-                border-color: var(--focus);
-                box-shadow: 0 1px 3px rgba(29, 78, 216, 0.15);
+                border-color: var(--accent);
+                background: linear-gradient(180deg, rgba(227,25,55,0.07) 0%, var(--bg-card) 100%);
             }
             .kpi-label {
-                font-size: 0.7rem; text-transform: uppercase;
-                letter-spacing: 0.06em; color: #64748B; margin-bottom: 4px;
+                font-size: 0.66rem; text-transform: uppercase;
+                letter-spacing: 0.16em; color: var(--text-secondary); margin-bottom: 6px;
+                font-weight: 600;
             }
-            .kpi-value { font-size: 1.0rem; font-weight: 650; color: #0F172A; line-height: 1.25; }
-            .kpi-card.focus .kpi-value { color: var(--focus); }
+            .kpi-value { font-size: 1.05rem; font-weight: 600; color: var(--text-primary); line-height: 1.3; }
+            .kpi-card.focus .kpi-value { color: var(--accent); }
 
             .affected-card {
-                border: 1px solid var(--border-soft);
-                border-radius: 10px;
-                padding: 14px 16px;
-                background: #FFFFFF;
+                border: 1px solid var(--border);
+                border-radius: 4px;
+                padding: 16px 18px;
+                background: var(--bg-card);
                 height: 420px;
                 overflow: hidden;
             }
-            .affected-card h4 { margin: 0 0 10px 0; font-size: 0.95rem; color: #0F172A; }
+            .affected-card h4 { margin: 0 0 12px 0; font-size: 0.95rem; color: var(--text-primary); font-weight: 600; }
             .affected-card .stat-row {
                 display: flex; justify-content: space-between;
-                padding: 6px 0; border-bottom: 1px dashed #E5E7EB;
-                color: #0F172A; font-size: 0.88rem;
+                padding: 8px 0; border-bottom: 1px solid var(--border);
+                color: var(--text-primary); font-size: 0.86rem;
             }
             .affected-card .stat-row:last-child { border-bottom: none; }
-            .affected-card .stat-row .v { font-weight: 700; color: var(--focus); }
-            .affected-card ul { margin: 8px 0 0 0; padding-left: 18px; color: #0F172A; font-size: 0.88rem; }
-            .affected-card ul li { margin-bottom: 3px; }
-            .affected-card .muted { color: #64748B; font-size: 0.8rem; margin-top: 6px; }
+            .affected-card .stat-row .v { font-weight: 700; color: var(--accent); }
+            .affected-card ul { margin: 10px 0 0 0; padding-left: 18px; color: var(--text-primary); font-size: 0.86rem; }
+            .affected-card ul li { margin-bottom: 5px; color: var(--text-primary); }
+            .affected-card .muted { color: var(--text-secondary); font-size: 0.8rem; margin-top: 6px; }
+
+            .qa-card {
+                border: 1px solid var(--border);
+                border-radius: 4px;
+                padding: 14px 16px;
+                background: var(--bg-card);
+                margin-bottom: 10px;
+            }
+            .qa-card h5 {
+                margin: 0 0 8px 0;
+                font-size: 0.7rem;
+                font-weight: 600;
+                color: var(--text-secondary);
+                text-transform: uppercase;
+                letter-spacing: 0.16em;
+            }
+            .qa-card .big {
+                font-size: 1.35rem; font-weight: 700; color: var(--text-primary);
+            }
+            .qa-card .big.bad { color: var(--accent); }
+            .qa-card .big.ok { color: var(--ok); }
+            .qa-card .sub { color: var(--text-secondary); font-size: 0.82rem; margin-top: 4px; }
 
             [data-testid="stSidebar"] {
-                background-color: #FFFFFF !important;
-                border-right: 1px solid var(--border-soft);
+                background-color: var(--bg-card) !important;
+                border-right: 1px solid var(--border);
             }
-            [data-testid="stSidebar"] label,
-            [data-testid="stSidebar"] h2,
-            [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { color: #1E293B !important; }
+            [data-testid="stSidebar"] * { color: var(--text-primary) !important; }
             [data-testid="stSidebar"] [data-baseweb="select"] > div,
             [data-testid="stSidebar"] [data-baseweb="input"] input {
-                background-color: #FFFFFF !important;
-                color: #0F172A !important;
-                border: 1px solid #CBD5E1 !important;
-                border-radius: 8px !important;
+                background-color: var(--bg-elev) !important;
+                color: var(--text-primary) !important;
+                border: 1px solid var(--border-strong) !important;
+                border-radius: 4px !important;
             }
+            [data-testid="stSidebar"] [data-baseweb="tag"] {
+                background-color: var(--accent-dim) !important;
+            }
+            [data-testid="stSidebar"] button {
+                background-color: var(--accent) !important;
+                color: #FFFFFF !important;
+                border: none !important;
+                border-radius: 3px !important;
+                font-weight: 600 !important;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                font-size: 0.78rem !important;
+            }
+            [data-testid="stSidebar"] button:hover { background-color: #C01530 !important; }
+
             [data-testid="stToolbar"],
             [data-testid="stDecoration"],
             [data-testid="stStatusWidget"],
             header[data-testid="stHeader"],
             #MainMenu,
             footer { display: none !important; }
+
+            /* Slider track */
+            .stSlider [data-baseweb="slider"] div[role="slider"] {
+                background-color: var(--accent) !important;
+                border-color: var(--accent) !important;
+            }
         </style>
         """,
         unsafe_allow_html=True,
@@ -227,12 +307,16 @@ def _load_cleaned_data(cleaned_dir: Path) -> dict[str, pd.DataFrame]:
         "adoption": _read_csv_if_exists(cleaned_dir / "adoption_operational_metrics.csv"),
         "finance": _read_csv_if_exists(cleaned_dir / "financial_variance_by_site_category.csv"),
         "missing": _read_csv_if_exists(cleaned_dir / "missing_input_risk_by_sheet.csv"),
+        "duration": _read_csv_if_exists(cleaned_dir / "deployment_duration_by_site.csv"),
+        "themes": _read_csv_if_exists(cleaned_dir / "pain_themes_by_site.csv"),
+        "estimate_q": _read_csv_if_exists(cleaned_dir / "austin_estimate_quality_issues.csv"),
     }
 
 
 def _ensure_data_ready(cleaned_dir: Path) -> dict[str, pd.DataFrame]:
     data = _load_cleaned_data(cleaned_dir)
-    if any(df.empty for df in data.values()):
+    required = ["ranking", "risk_contrib", "events", "pain", "adoption", "finance"]
+    if any(data[k].empty for k in required):
         with st.spinner("Preparing cleaned diagnostics from source workbooks..."):
             run_inspection_analysis()
         data = _load_cleaned_data(cleaned_dir)
@@ -256,30 +340,34 @@ def render_chart(
     """
     default_margin = {"l": 58, "r": 40, "t": 48 if title else 20, "b": 52}
     fig.update_layout(
-        template="plotly_white",
-        paper_bgcolor="#FFFFFF",
-        plot_bgcolor="#FFFFFF",
+        template="plotly_dark",
+        paper_bgcolor=_BG_CARD,
+        plot_bgcolor=_BG_CARD,
         autosize=False,
         height=height,
         margin=margin or default_margin,
         title=(
-            {"text": title, "x": 0.5, "xanchor": "center",
-             "font": {"size": 15, "color": "#0F172A"}}
+            {"text": title, "x": 0.02, "xanchor": "left",
+             "font": {"size": 14, "color": _TEXT_PRIMARY, "family": "Inter, sans-serif"}}
             if title else None
         ),
-        font={"color": "#0F172A", "size": 13},
+        font={"color": _TEXT_PRIMARY, "size": 12, "family": "Inter, sans-serif"},
         showlegend=show_legend,
         dragmode=False,
-        hoverlabel=dict(bgcolor="#FFFFFF", font_size=12, font_family="Inter, sans-serif"),
+        hoverlabel=dict(bgcolor=_BG_CARD, bordercolor=_FOCUS_COLOR,
+                        font_size=12, font_family="Inter, sans-serif",
+                        font_color=_TEXT_PRIMARY),
     )
     fig.update_xaxes(
-        showgrid=True, gridcolor="#E8EDF3", zeroline=False, linecolor="#94A3B8",
-        title_font={"size": 12, "color": "#0F172A"}, tickfont={"size": 11, "color": "#334155"},
+        showgrid=True, gridcolor="#1F1F1F", zeroline=False, linecolor=_BORDER,
+        title_font={"size": 11, "color": _TEXT_SECONDARY},
+        tickfont={"size": 10, "color": _TEXT_SECONDARY},
         automargin=True, fixedrange=True,
     )
     fig.update_yaxes(
-        showgrid=True, gridcolor="#E8EDF3", zeroline=False, linecolor="#94A3B8",
-        title_font={"size": 12, "color": "#0F172A"}, tickfont={"size": 11, "color": "#334155"},
+        showgrid=True, gridcolor="#1F1F1F", zeroline=False, linecolor=_BORDER,
+        title_font={"size": 11, "color": _TEXT_SECONDARY},
+        tickfont={"size": 10, "color": _TEXT_SECONDARY},
         automargin=True, fixedrange=True,
     )
     if selectable and key:
@@ -344,7 +432,7 @@ def _build_delay_cost_scatter(events: pd.DataFrame, focus_site: str) -> go.Figur
     if ev.empty:
         return fig
 
-    # Focus ring is drawn FIRST so the clickable marker sits on top (click + hover both work).
+    # Focus ring drawn FIRST so the clickable marker sits on top.
     if focus_site:
         f = ev[ev["_site"] == str(focus_site)]
         if not f.empty:
@@ -352,7 +440,7 @@ def _build_delay_cost_scatter(events: pd.DataFrame, focus_site: str) -> go.Figur
                 go.Scatter(
                     x=f["_x"], y=f["_y"], mode="markers",
                     marker=dict(
-                        size=34, symbol="circle-open",
+                        size=36, symbol="circle-open",
                         line=dict(width=3, color=_FOCUS_COLOR),
                         color="rgba(0,0,0,0)",
                     ),
@@ -363,20 +451,24 @@ def _build_delay_cost_scatter(events: pd.DataFrame, focus_site: str) -> go.Figur
     customdata = np.column_stack([ev["_site"].values, ev["_rate"].values])
     fig.add_trace(
         go.Scatter(
-            x=ev["_x"], y=ev["_y"], mode="markers",
+            x=ev["_x"], y=ev["_y"], mode="markers+text",
+            text=ev["_site"], textposition="top center",
+            textfont=dict(color=_TEXT_SECONDARY, size=10),
             marker=dict(
-                size=16,
+                size=18,
                 color=ev["_rate"],
                 cmin=0.0, cmax=max(0.01, float(ev["_rate"].max())),
-                colorscale="YlOrRd", showscale=True,
+                colorscale=[[0, "#2A2A2A"], [0.5, "#8E0F1F"], [1.0, _FOCUS_COLOR]],
+                showscale=True,
                 colorbar=dict(
-                    title=dict(text="Delay-like<br>share", font=dict(size=11, color="#111827")),
-                    tickformat=".0%", len=0.75, thickness=10,
-                    outlinewidth=1, outlinecolor="#CBD5E1",
+                    title=dict(text="Delay-like<br>share", font=dict(size=10, color=_TEXT_SECONDARY)),
+                    tickformat=".0%", len=0.75, thickness=9,
+                    outlinewidth=1, outlinecolor=_BORDER,
+                    tickfont=dict(color=_TEXT_SECONDARY, size=9),
                     x=1.015, xanchor="left",
                 ),
-                line=dict(width=0.5, color="#FFFFFF"),
-                opacity=0.95,
+                line=dict(width=1, color=_BG_CARD),
+                opacity=1.0,
             ),
             customdata=customdata,
             hovertemplate=(
@@ -389,19 +481,6 @@ def _build_delay_cost_scatter(events: pd.DataFrame, focus_site: str) -> go.Figur
             showlegend=False,
         )
     )
-
-    if focus_site:
-        f = ev[ev["_site"] == str(focus_site)]
-        if not f.empty:
-            fx = float(f["_x"].iloc[0])
-            fy = float(f["_y"].iloc[0])
-            fig.add_annotation(
-                x=fx, y=fy, text=f"<b>{focus_site}</b>",
-                showarrow=False, yshift=26,
-                font=dict(size=12, color=_FOCUS_COLOR),
-                bgcolor="rgba(255,255,255,0.9)",
-                bordercolor=_FOCUS_COLOR, borderwidth=1, borderpad=3,
-            )
 
     fig.update_xaxes(title="Delay impact (days)")
     fig.update_yaxes(title="Disruption cost ($)")
@@ -778,11 +857,11 @@ def _render_affected_card(
     rows_html = "".join(
         f"<li><b>{row['user_team']}</b> — {row['feedback_type']}"
         + (
-            "  ·  <span style='color:#B91C1C'>unresolved</span>"
+            f"  ·  <span style='color:{_FOCUS_COLOR}'>unresolved</span>"
             if int(pd.to_numeric(row.get("unresolved_feedback", 0), errors="coerce") or 0) > 0 else ""
         )
         + (
-            "  ·  <span style='color:#64748B'>status missing</span>"
+            f"  ·  <span style='color:{_TEXT_SECONDARY}'>status missing</span>"
             if int(pd.to_numeric(row.get("missing_status_count", 0), errors="coerce") or 0) > 0 else ""
         )
         + "</li>"
@@ -799,8 +878,185 @@ def _render_affected_card(
             <div class="stat-row"><span>Unresolved items</span><span class="v">{unresolved}</span></div>
             <div class="stat-row"><span>Missing status</span><span class="v">{missing_status}</span></div>
             <div class="stat-row"><span>High-priority open</span><span class="v">{high_pri}</span></div>
-            <div style="margin-top:10px;font-size:0.82rem;color:#64748B;">Top teams (severity-ranked)</div>
+            <div style="margin-top:12px;font-size:0.74rem;color:{_TEXT_SECONDARY};letter-spacing:0.12em;text-transform:uppercase;font-weight:600;">Top teams (severity-ranked)</div>
             <ul>{rows_html}</ul>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_duration_section(duration_df: pd.DataFrame) -> None:
+    if duration_df.empty:
+        return
+    st.markdown(
+        "<div class='section-header'>Deployment Velocity · Previous Sites</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div class='hint'>Target: 4 weeks to Athena go-live. Shanghai/Mexico are the playbook; Berlin is the anti-pattern.</div>",
+        unsafe_allow_html=True,
+    )
+
+    col_chart, col_kpi = st.columns([2.1, 1], gap="medium")
+    with col_chart:
+        d = duration_df.sort_values("actual_weeks", ascending=True).copy()
+        colors = [_FOCUS_COLOR if w > 4 else _GOOD if w < 4 else _TEXT_SECONDARY for w in d["actual_weeks"]]
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=d["actual_weeks"], y=d["site"], orientation="h",
+            marker=dict(color=colors, line=dict(width=0)),
+            text=[f"{w:.1f} wk" for w in d["actual_weeks"]],
+            textposition="outside",
+            textfont=dict(size=11, color=_TEXT_PRIMARY),
+            cliponaxis=False,
+            hovertemplate="<b>%{y}</b><br>Actual: %{x:.1f} wk<br>Target: 4.0 wk<extra></extra>",
+        ))
+        fig.add_vline(
+            x=4, line_dash="dash", line_color=_TEXT_SECONDARY,
+            annotation_text="Target 4w", annotation_position="top",
+            annotation_font_color=_TEXT_SECONDARY, annotation_font_size=10,
+        )
+        fig.update_layout(xaxis_title="Weeks to go-live", yaxis_title="")
+        render_chart(
+            fig, title="Weeks to Go-Live · Actual vs 4-Week Target",
+            height=260, margin={"l": 86, "r": 30, "t": 42, "b": 46},
+        )
+
+    with col_kpi:
+        worst = duration_df.iloc[0]
+        best = duration_df.iloc[-1]
+        on_target = int((duration_df["overrun_weeks"] <= 0).sum())
+        total = len(duration_df)
+        st.markdown(
+            f"""
+            <div class='qa-card'>
+                <h5>Worst — Overrun Champion</h5>
+                <div class='big bad'>{worst['site']} · {worst['actual_weeks']:.1f} wk</div>
+                <div class='sub'>+{worst['overrun_weeks']:.1f} weeks over target ({worst['overrun_pct']:+.0f}%)</div>
+            </div>
+            <div class='qa-card'>
+                <h5>Best — Reference Playbook</h5>
+                <div class='big ok'>{best['site']} · {best['actual_weeks']:.1f} wk</div>
+                <div class='sub'>{best['overrun_weeks']:+.1f} wk vs target</div>
+            </div>
+            <div class='qa-card'>
+                <h5>On / Under Target</h5>
+                <div class='big'>{on_target} of {total}</div>
+                <div class='sub'>Out of {total} prior deployments</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_themes_section(themes_df: pd.DataFrame) -> None:
+    if themes_df.empty:
+        return
+    st.markdown(
+        "<div class='section-header'>User Pain · Cross-Site Themes</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div class='hint'>Every theme appears at ≥4 of 5 sites — these are platform-level gaps, not site-specific.</div>",
+        unsafe_allow_html=True,
+    )
+
+    col_tot, col_heat = st.columns([1, 1.4], gap="medium")
+    with col_tot:
+        totals = (
+            themes_df.drop_duplicates("theme")[["theme", "total_mentions", "high_total"]]
+            .sort_values("total_mentions", ascending=True)
+        )
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=totals["total_mentions"], y=totals["theme"], orientation="h",
+            marker=dict(color=_FOCUS_COLOR, line=dict(width=0)),
+            text=[f"{int(m)} ({int(h)} high)" for m, h in zip(totals["total_mentions"], totals["high_total"])],
+            textposition="outside",
+            textfont=dict(size=10, color=_TEXT_PRIMARY),
+            cliponaxis=False,
+            hovertemplate="<b>%{y}</b><br>Mentions: %{x}<extra></extra>",
+        ))
+        fig.update_layout(xaxis_title="Feedback mentions", yaxis_title="")
+        render_chart(
+            fig, title="Theme frequency (38 feedback items, 5 sites)",
+            height=380, margin={"l": 220, "r": 30, "t": 42, "b": 46},
+        )
+
+    with col_heat:
+        pivot = themes_df.pivot_table(
+            index="theme", columns="site", values="mentions", aggfunc="sum", fill_value=0
+        )
+        theme_order = (
+            themes_df.drop_duplicates("theme")[["theme", "total_mentions"]]
+            .sort_values("total_mentions", ascending=True)
+        )["theme"].tolist()
+        pivot = pivot.reindex(theme_order)
+        fig = go.Figure(data=go.Heatmap(
+            z=pivot.values,
+            x=list(pivot.columns),
+            y=list(pivot.index),
+            colorscale=[[0, _BG_CARD], [0.3, "#3A0A12"], [0.7, "#8E0F1F"], [1.0, _FOCUS_COLOR]],
+            colorbar=dict(
+                title=dict(text="Mentions", font=dict(size=10, color=_TEXT_SECONDARY)),
+                tickfont=dict(color=_TEXT_SECONDARY, size=9),
+                thickness=9, len=0.75, outlinewidth=1, outlinecolor=_BORDER,
+            ),
+            text=pivot.values, texttemplate="%{text}",
+            textfont=dict(color=_TEXT_PRIMARY, size=11),
+            hovertemplate="<b>%{y}</b> · %{x}<br>%{z} mentions<extra></extra>",
+        ))
+        fig.update_layout(xaxis_title="", yaxis_title="")
+        render_chart(
+            fig, title="Theme × site — where pain concentrates",
+            height=380, margin={"l": 220, "r": 30, "t": 42, "b": 46},
+        )
+
+
+def _render_estimate_section(estimate_df: pd.DataFrame) -> None:
+    if estimate_df.empty:
+        return
+    st.markdown(
+        "<div class='section-header'>Austin · Day-1 Estimate Data Quality</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        "<div class='hint'>The Athena project breakout comes from this Estimate. Fix these before Day 1 or the import fails.</div>",
+        unsafe_allow_html=True,
+    )
+
+    total_defects = int(estimate_df["rows_affected"].sum())
+    defect_categories = len(estimate_df)
+    st.markdown(
+        f"""
+        <div class='qa-card' style='margin-bottom:12px'>
+            <h5>Defects Found Before Import</h5>
+            <div class='big bad'>{total_defects} cells · {defect_categories} defect types</div>
+            <div class='sub'>Across 36 scope rows in the Austin Building 1 estimate</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    rows_html = "".join(
+        f"""
+        <div class='stat-row' style='padding:10px 0;display:grid;grid-template-columns:1.2fr 2fr 0.5fr 2.2fr;gap:10px;'>
+            <div><b style='color:{_FOCUS_COLOR}'>{row['field']}</b></div>
+            <div>{row['defect']}</div>
+            <div style='text-align:right;font-weight:600;'>{row['rows_affected']}</div>
+            <div style='color:{_TEXT_SECONDARY};font-size:0.84rem;'>{row['impact']}</div>
+        </div>
+        """
+        for _, row in estimate_df.iterrows()
+    )
+    st.markdown(
+        f"""
+        <div class='affected-card' style='height:auto;'>
+            <div class='stat-row' style='padding:6px 0;display:grid;grid-template-columns:1.2fr 2fr 0.5fr 2.2fr;gap:10px;color:{_TEXT_SECONDARY};font-size:0.72rem;text-transform:uppercase;letter-spacing:0.14em;font-weight:600;'>
+                <div>Field</div><div>Defect</div><div style='text-align:right;'>Rows</div><div>Import Impact</div>
+            </div>
+            {rows_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -810,11 +1066,16 @@ def _render_affected_card(
 def main() -> None:
     _inject_styles()
     st.markdown(
-        "<div class='main-title'>Tesla FDE Deployment Monitoring Dashboard</div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        "<div class='app-subtitle'>The problem → where it's worst → why it's risky → who's affected → what to do.</div>",
+        """
+        <div class='brand-row'>
+            <div class='brand-left'>
+                <div class='brand-mark'>TESLA</div>
+                <div class='brand-pipe'></div>
+                <div class='brand-product'>Athena FDE Console <span class='muted'>· Deployment Diagnostics</span></div>
+            </div>
+            <div class='brand-right'>Gigafactory · Austin · Building 1</div>
+        </div>
+        """,
         unsafe_allow_html=True,
     )
 
@@ -832,6 +1093,7 @@ def main() -> None:
     mode_slot = st.empty()
     banner_slot = st.empty()
     strip_slot = st.empty()
+    velocity_slot = st.empty()
 
     st.markdown(
         "<div class='section-header'>Where it's worst · why it's risky</div>",
@@ -873,7 +1135,7 @@ def main() -> None:
                     marker=dict(color=bar_colors, line=dict(width=0)),
                     text=text_labels,
                     textposition="outside",
-                    textfont=dict(size=11, color="#0F172A"),
+                    textfont=dict(size=11, color=_TEXT_PRIMARY),
                     cliponaxis=False,
                     hovertemplate="<b>%{y}</b><br>Composite risk: %{x:.2f}<br><i>click to deep-dive</i><extra></extra>",
                 )
@@ -931,6 +1193,8 @@ def main() -> None:
         _render_focus_banner(focus, ctx)
     with strip_slot.container():
         _render_decision_strip(ctx)
+    with velocity_slot.container():
+        _render_duration_section(filtered.get("duration", pd.DataFrame()))
 
     # ---- Who is affected ----
     st.markdown("<div class='section-header'>Who is affected?</div>", unsafe_allow_html=True)
@@ -972,10 +1236,10 @@ def main() -> None:
                             x=float(f_df["week_num"].iloc[-1]),
                             y=float(f_df["blocked_rate"].iloc[-1]),
                             text=f"<b>{focus.focus_site}</b>",
-                            showarrow=False, xshift=8, yshift=10,
+                            showarrow=False, xshift=10, yshift=10,
                             font=dict(size=12, color=_FOCUS_COLOR),
-                            bgcolor="rgba(255,255,255,0.9)",
-                            bordercolor=_FOCUS_COLOR, borderwidth=1, borderpad=3,
+                            bgcolor=_BG_CARD,
+                            bordercolor=_FOCUS_COLOR, borderwidth=1, borderpad=4,
                         )
                 render_chart(
                     fig_adoption,
@@ -987,6 +1251,12 @@ def main() -> None:
                 st.info("No week-level adoption rows for current filters.")
         else:
             st.info("No adoption data for current filters.")
+
+    # ---- Pain themes cross-site ---- (always aggregate across all 5 sites, ignore sidebar filter)
+    _render_themes_section(data.get("themes", pd.DataFrame()))
+
+    # ---- Austin Day-1 data quality ----
+    _render_estimate_section(data.get("estimate_q", pd.DataFrame()))
 
     # ---- What to do next ----
     st.markdown("<div class='section-header'>What to do next</div>", unsafe_allow_html=True)

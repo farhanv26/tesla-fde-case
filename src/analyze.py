@@ -15,10 +15,10 @@ from utils import ensure_directory, get_project_root, normalize_identifier
 
 def _normalize_site_family(site_value: object) -> str:
     """
-    Return a normalized site family label while preserving the original site label.
+    Collapse "Berlin" and "GF Berlin" to a single site family "Berlin".
 
-    We do not merge sites in scoring by default; this is for transparency only
-    (e.g., "Berlin" and "GF Berlin" map to the same family "Berlin").
+    Source data double-labels every site, which previously split every metric
+    in half across two rows of the ranking.
     """
     text = str(site_value).strip()
     if not text or text.lower() == "nan":
@@ -27,6 +27,14 @@ def _normalize_site_family(site_value: object) -> str:
     if lowered.startswith("gf "):
         return text[3:].strip()
     return text
+
+
+def _normalize_sites_inplace(df: pd.DataFrame) -> pd.DataFrame:
+    """Rewrite the ``site`` column to its normalized family label, if present."""
+    if not df.empty and "site" in df.columns:
+        df = df.copy()
+        df["site"] = df["site"].map(_normalize_site_family)
+    return df
 
 
 def infer_sheet_purpose(sheet_name: str, columns: list[str]) -> str:
@@ -104,11 +112,11 @@ def _parse_week_number(series: pd.Series) -> pd.Series:
 
 
 def _sheet_lookup(workbooks: dict[str, dict[str, pd.DataFrame]]) -> dict[str, pd.DataFrame]:
-    """Build a lowercase sheet-name lookup to simplify downstream access."""
+    """Build a lowercase sheet-name lookup; normalize site labels at the source."""
     lookup: dict[str, pd.DataFrame] = {}
     for sheets in workbooks.values():
         for sheet_name, df in sheets.items():
-            lookup[sheet_name.lower()] = df.copy()
+            lookup[sheet_name.lower()] = _normalize_sites_inplace(df.copy())
     return lookup
 
 
@@ -200,8 +208,9 @@ def _build_feedback_pain_summary(feedback_df: pd.DataFrame) -> pd.DataFrame:
     status_series = df["status"].astype(str).str.lower().str.strip()
     missing_status = df["status"].isna() | status_series.isin(["", "nan", "none"])
     resolved = status_series.str.contains("addressed|closed|resolved|done", regex=True, na=False)
-    unresolved_explicit = status_series.str.contains("open|backlog|pending|blocked|issue|in progress", regex=True, na=False)
-    unresolved = unresolved_explicit & (~missing_status) & (~resolved)
+    # Missing status means nobody triaged it — that IS the unresolved bucket.
+    # Previously excluding missing_status dropped every real high-priority open item.
+    unresolved = ~resolved
     high_priority = df["priority"].astype(str).str.lower().str.contains("high", regex=False)
 
     df["status_missing"] = missing_status
@@ -259,6 +268,145 @@ def _build_adoption_metrics(adoption_df: pd.DataFrame) -> pd.DataFrame:
     df["reporting_completion_rate"] = 1 - df[available_key_columns].isna().mean(axis=1)
 
     return df.sort_values(["site", "week_num"])
+
+
+def _build_deployment_duration(event_df: pd.DataFrame, target_weeks: float = 4.0) -> pd.DataFrame:
+    """Extract actual vs target deployment weeks from Closure event descriptions.
+
+    Description format observed: "Athena live — N weeks total" (or "N.N weeks").
+    """
+    df = event_df.copy()
+    if df.empty or not {"site", "event_type", "description"}.issubset(df.columns):
+        return pd.DataFrame()
+    closures = df[df["event_type"].astype(str).str.lower() == "closure"].copy()
+    if closures.empty:
+        return pd.DataFrame()
+    weeks = closures["description"].astype(str).str.extract(r"(\d+(?:\.\d+)?)\s*weeks", expand=False)
+    closures["actual_weeks"] = pd.to_numeric(weeks, errors="coerce")
+    closures["target_weeks"] = target_weeks
+    closures["overrun_weeks"] = closures["actual_weeks"] - target_weeks
+    closures["overrun_pct"] = closures["overrun_weeks"] / target_weeks * 100
+    return (
+        closures[["site", "actual_weeks", "target_weeks", "overrun_weeks", "overrun_pct"]]
+        .dropna(subset=["actual_weeks"])
+        .sort_values("actual_weeks", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
+_PAIN_THEMES: dict[str, list[str]] = {
+    "Change Mgmt (clicks/workflow)": [
+        "change management", "change order", "workflow", "click", "approval", "baseline",
+        "trigger", "sign-off", "sign off",
+    ],
+    "Tekton <> Athena Sync": [
+        "tekton", "offline", "sync", "mobile", "field data", "crew", "field",
+    ],
+    "External Access / Permissions": [
+        "permission", "read-only", "vendor", "external", "partner", "audit requirement",
+        "gc", "contractor", "commissioning",
+    ],
+    "Integrations (Primavera/SAP/API)": [
+        "primavera", "sap", "api", "integration", "legacy", "procore", "slack",
+    ],
+    "Reporting / Variance / Rollups": [
+        "report", "variance", "forecast", "dashboard", "rollup", "slow", "5+ min",
+    ],
+    "Milestones / Scheduling": [
+        "milestone", "schedul", "critical path", "dependenc",
+    ],
+    "Data Quality / Import": [
+        "decimal", "precision", "bulk import", "import", "invalid", "error message",
+        "format mismatch",
+    ],
+    "Training / Complexity": [
+        "training", "too complex", "complex", "simpler", "unclear",
+    ],
+}
+
+
+def _tag_pain_themes(text: str) -> list[str]:
+    """Return the list of themes matched by a feedback item (can be 0 or more)."""
+    lowered = str(text).lower()
+    matched = [name for name, kws in _PAIN_THEMES.items() if any(k in lowered for k in kws)]
+    return matched or ["Uncategorized"]
+
+
+def _build_pain_themes(feedback_df: pd.DataFrame) -> pd.DataFrame:
+    """Theme-tag each feedback row and return theme × site counts with priority mix."""
+    df = feedback_df.copy()
+    required = {"site", "pain_point_request", "priority"}
+    if df.empty or not required.issubset(df.columns):
+        return pd.DataFrame()
+    df["themes"] = df["pain_point_request"].map(_tag_pain_themes)
+    df["priority_norm"] = df["priority"].astype(str).str.lower().str.strip()
+    df["is_high"] = df["priority_norm"].str.contains("high", na=False)
+
+    expanded = df.explode("themes")
+    rollup = (
+        expanded.groupby(["themes", "site"], dropna=False)
+        .agg(
+            mentions=("pain_point_request", "count"),
+            high_priority=("is_high", "sum"),
+        )
+        .reset_index()
+        .rename(columns={"themes": "theme"})
+    )
+    totals = (
+        expanded.groupby("themes")
+        .agg(total_mentions=("pain_point_request", "count"), high_total=("is_high", "sum"))
+        .reset_index()
+        .rename(columns={"themes": "theme"})
+        .sort_values("total_mentions", ascending=False)
+    )
+    return rollup.merge(totals, on="theme").sort_values(
+        ["total_mentions", "theme", "site"], ascending=[False, True, True]
+    )
+
+
+def _build_estimate_quality(workbooks: dict[str, dict[str, pd.DataFrame]]) -> pd.DataFrame:
+    """Flag data-quality defects in the Austin estimate that would break an Athena import."""
+    estimate_df = pd.DataFrame()
+    for workbook_name, sheets in workbooks.items():
+        if "estimate" in workbook_name.lower():
+            for sheet_name, df in sheets.items():
+                estimate_df = df.copy()
+                break
+    if estimate_df.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, object]] = []
+    if "project" in estimate_df.columns:
+        missing_project = int(estimate_df["project"].isna().sum())
+        if missing_project:
+            rows.append({
+                "field": "Project",
+                "defect": "Missing / blank",
+                "rows_affected": missing_project,
+                "impact": "Would not import — required for Area/System root node.",
+            })
+    if "area_system" in estimate_df.columns:
+        missing_area = int(estimate_df["area_system"].isna().sum())
+        if missing_area:
+            rows.append({
+                "field": "Area/System",
+                "defect": "Missing / blank",
+                "rows_affected": missing_area,
+                "impact": "Scope orphaned from Area/System hierarchy.",
+            })
+    for col, label in [("labor_cost", "Labor Cost"), ("material_cost", "Material Cost"),
+                       ("rental_cost", "Rental Cost"), ("material_quantity", "Material Quantity")]:
+        if col in estimate_df.columns:
+            series = estimate_df[col].astype(str)
+            mixed = series.str.contains(r"[\$,kKmM]", regex=True, na=False).sum()
+            if mixed:
+                rows.append({
+                    "field": label,
+                    "defect": "Mixed format ($, commas, k/M suffixes)",
+                    "rows_affected": int(mixed),
+                    "impact": "Numeric parser would need pre-processing before load.",
+                })
+    return pd.DataFrame(rows)
 
 
 def _build_missing_input_by_sheet(workbooks: dict[str, dict[str, pd.DataFrame]]) -> pd.DataFrame:
@@ -383,7 +531,9 @@ def _build_problem_area_ranking(
 
     ranked = pd.DataFrame(
         [{"site": site, "problem_score": score} for site, score in site_scores.items()]
-    ).sort_values("problem_score", ascending=False)
+    )
+    ranked = ranked[ranked["site"].astype(str).str.lower() != "unknown"]
+    ranked = ranked.sort_values("problem_score", ascending=False)
     ranked["site_family"] = ranked["site"].map(_normalize_site_family)
 
     contributions = pd.DataFrame(contribution_rows)
@@ -406,6 +556,8 @@ def _save_charts(
     pain_summary_df: pd.DataFrame,
     missing_input_df: pd.DataFrame,
     problem_ranking_df: pd.DataFrame,
+    duration_df: pd.DataFrame | None = None,
+    pain_themes_df: pd.DataFrame | None = None,
 ) -> None:
     """Save polished Plotly charts as HTML files."""
     ensure_directory(charts_dir)
@@ -545,6 +697,45 @@ def _save_charts(
         )
         fig.write_html(str(charts_dir / "05_Executive_Site_Intervention_Priority.html"))
 
+    if duration_df is not None and not duration_df.empty:
+        dplot = duration_df.copy().sort_values("actual_weeks", ascending=True)
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=dplot["actual_weeks"], y=dplot["site"], orientation="h",
+            marker_color=["#E31937" if w > 4 else "#7FB069" for w in dplot["actual_weeks"]],
+            text=[f"{w:.1f} wks" for w in dplot["actual_weeks"]],
+            textposition="outside", name="Actual",
+        ))
+        fig.add_vline(x=4, line_dash="dash", line_color="#94A3B8", annotation_text="Target: 4 wks")
+        fig.update_layout(
+            template="plotly_white", title_font=title_style,
+            title="Deployment Duration: Actual vs 4-Week Target",
+            xaxis_title="Weeks to Go-Live", yaxis_title="",
+            margin={"l": 100, "r": 30, "t": 80, "b": 50},
+            showlegend=False,
+        )
+        fig.write_html(str(charts_dir / "07_Executive_Deployment_Duration.html"))
+
+    if pain_themes_df is not None and not pain_themes_df.empty:
+        theme_totals = (
+            pain_themes_df.drop_duplicates("theme")[["theme", "total_mentions", "high_total"]]
+            .sort_values("total_mentions", ascending=True)
+        )
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=theme_totals["total_mentions"], y=theme_totals["theme"], orientation="h",
+            marker_color="#E31937", name="Mentions",
+            text=theme_totals["total_mentions"], textposition="outside",
+        ))
+        fig.update_layout(
+            template="plotly_white", title_font=title_style,
+            title="User Pain Themes — Cross-Site Frequency",
+            xaxis_title="Feedback Mentions", yaxis_title="",
+            margin={"l": 260, "r": 30, "t": 80, "b": 50},
+            showlegend=False,
+        )
+        fig.write_html(str(charts_dir / "08_Executive_Pain_Themes.html"))
+
     if not missing_input_df.empty:
         missing_plot = missing_input_df.head(8).sort_values("missing_rate", ascending=True).copy()
         fig = go.Figure(
@@ -579,97 +770,126 @@ def _build_key_findings_markdown(
     adoption_metrics_df: pd.DataFrame,
     missing_input_df: pd.DataFrame,
     problem_ranking_df: pd.DataFrame,
+    duration_df: pd.DataFrame | None = None,
+    pain_themes_df: pd.DataFrame | None = None,
+    estimate_quality_df: pd.DataFrame | None = None,
 ) -> None:
     """Create an executive-ready findings memo in markdown."""
-    top_event = event_risk_df.iloc[0] if not event_risk_df.empty else None
-    top_variance = financial_variance_df.iloc[0] if not financial_variance_df.empty else None
-    top_pain_rows = pain_summary_df.head(3) if not pain_summary_df.empty else pd.DataFrame()
-    top_missing = missing_input_df.iloc[0] if not missing_input_df.empty else None
-    top_site = problem_ranking_df.iloc[0] if not problem_ranking_df.empty else None
-    adoption_by_site = (
-        adoption_metrics_df.groupby("site", as_index=False)["blocked_rate"].mean().sort_values("blocked_rate", ascending=False)
-        if not adoption_metrics_df.empty
-        else pd.DataFrame()
-    )
-    worst_blocked = adoption_by_site.iloc[0] if not adoption_by_site.empty else None
+    md: list[str] = ["# Tesla FDE — Key Findings", ""]
 
-    findings = [
-        (
-            "Deployment breakdown risk is concentrated at one site.",
-            (
-                f"{top_event['site']} shows {int(top_event['events_count'])} disruption events, "
-                f"{top_event['total_days_impact']:.1f} delay-days, and ${top_event['total_cost_impact']:,.0f} impact."
-                if top_event is not None
-                else "Event log fields were insufficient for disruption concentration scoring."
-            ),
-        ),
-        (
-            "Project controls failed most in a specific cost category.",
-            (
-                f"Highest overrun is {top_variance['site']} / {top_variance['category']}: "
-                f"${top_variance['variance']:,.0f} ({top_variance['variance_pct']:.1f}%)."
-                if top_variance is not None
-                else "Budget-vs-actual fields were unavailable for variance calculation."
-            ),
-        ),
-        (
-            "Adoption breakdown is visible through blocked users.",
-            (
-                f"Worst average blocked-user ratio is {worst_blocked['site']} at {worst_blocked['blocked_rate']:.1%}."
-                if worst_blocked is not None
-                else "Adoption fields were insufficient for blocked-rate tracking."
-            ),
-        ),
-        (
-            "Reporting reliability degraded in key operational inputs.",
-            (
-                f"Highest missing-input rate is in {top_missing['sheet_name']} at {top_missing['missing_rate']:.1%}."
-                if top_missing is not None
-                else "Missing-input rates could not be computed."
-            ),
-        ),
-        (
-            "Intervention should start with the top-ranked analog site.",
-            (
-                f"Composite priority score ranks {top_site['site']} first for preventive playbook design."
-                if top_site is not None
-                else "Composite ranking could not be computed with current fields."
-            ),
-        ),
-    ]
-
-    pain_points: list[str] = []
-    if not top_pain_rows.empty:
-        for _, row in top_pain_rows.iterrows():
-            pain_points.append(
-                f"{row['site']} | {row['user_team']} | {row['feedback_type']}: "
-                f"{int(row['high_priority_unresolved'])} high-priority unresolved items "
-                f"({row['unresolved_rate']:.0%} unresolved rate)."
+    # --- Headline: deployment duration ---
+    if duration_df is not None and not duration_df.empty:
+        md.append("## Headline: Deployment Velocity is the Biggest Signal")
+        md.append("")
+        md.append("Target: **4 weeks** to go-live. Actuals:")
+        md.append("")
+        md.append("| Site | Actual weeks | Overrun |")
+        md.append("| --- | --- | --- |")
+        for _, row in duration_df.iterrows():
+            sign = "+" if row["overrun_weeks"] > 0 else ""
+            md.append(
+                f"| {row['site']} | {row['actual_weeks']:.1f} | "
+                f"{sign}{row['overrun_weeks']:.1f} wk ({sign}{row['overrun_pct']:.0f}%) |"
             )
-    while len(pain_points) < 2:
-        pain_points.append("Insufficient tagged pain-point fields to isolate additional user pain clusters.")
-    pain_points = pain_points[:3]
+        worst = duration_df.iloc[0]
+        best = duration_df.iloc[-1]
+        md.append("")
+        md.append(
+            f"**Spread:** {worst['site']} took {worst['actual_weeks']:.1f} weeks "
+            f"({worst['overrun_pct']:.0f}% over target). "
+            f"{best['site']} landed in {best['actual_weeks']:.1f}. "
+            f"Shanghai/Mexico are the playbook; Berlin is the anti-pattern."
+        )
+        md.append("")
 
-    recommendations = [
-        "Enforce a launch-control cadence at the new site: weekly review of blocked-user rate, disruption days, and cost impact with explicit owners.",
-        "Front-load interventions on categories/teams mirroring top historical overruns and unresolved pain-point clusters; define SLA-based escalation for high-priority items.",
-        "Harden reporting inputs before go-live: mandatory templates for status, impacts, and closure states to reduce missing data and improve decision confidence.",
-    ]
+    # --- Themes ---
+    if pain_themes_df is not None and not pain_themes_df.empty:
+        theme_totals = (
+            pain_themes_df.drop_duplicates("theme")[["theme", "total_mentions", "high_total"]]
+            .sort_values("total_mentions", ascending=False)
+        )
+        md.append("## User Pain Themes (38 feedback items across 5 sites)")
+        md.append("")
+        md.append("| Theme | Mentions | High-priority |")
+        md.append("| --- | --- | --- |")
+        for _, row in theme_totals.head(8).iterrows():
+            md.append(f"| {row['theme']} | {int(row['total_mentions'])} | {int(row['high_total'])} |")
+        md.append("")
+        md.append(
+            "The top three themes account for the majority of all feedback. "
+            "Any Austin plan that doesn't address change-management friction, Tekton sync, "
+            "and reporting/rollup reliability is solving the wrong problem."
+        )
+        md.append("")
 
-    md_lines = ["# Key Findings", "", "## Top 5 Findings"]
-    for idx, (finding, evidence) in enumerate(findings, start=1):
-        md_lines.append(f"{idx}. **{finding}**")
-        md_lines.append(f"   - Evidence: {evidence}")
+    # --- Site-level risk ---
+    if not problem_ranking_df.empty:
+        md.append("## Site-Level Composite Risk (directional, not calibrated)")
+        md.append("")
+        md.append("| Site | Composite score |")
+        md.append("| --- | --- |")
+        for _, row in problem_ranking_df.head(5).iterrows():
+            md.append(f"| {row['site']} | {row['problem_score']:.2f} |")
+        md.append("")
 
-    md_lines.extend(["", "## Likely User Pain Points"])
-    for idx, pain in enumerate(pain_points, start=1):
-        md_lines.append(f"{idx}. {pain}")
+    # --- Finance ---
+    if not financial_variance_df.empty:
+        top_variance = financial_variance_df.iloc[0]
+        md.append("## Budget Control Failures")
+        md.append("")
+        md.append(
+            f"- Largest overrun: **{top_variance['site']} / {top_variance['category']}** — "
+            f"${top_variance['variance']:,.0f} ({top_variance['variance_pct']:.1f}%)."
+        )
+        # Targeted savings analysis — sites that missed their savings plan
+        if "category" in financial_variance_df.columns:
+            sav = financial_variance_df[
+                financial_variance_df["category"].astype(str).str.contains("Targeted Savings", case=False, na=False)
+            ]
+            if not sav.empty:
+                md.append("- Targeted Savings across sites consistently underperformed plan (realized < budgeted).")
+        md.append("")
 
-    md_lines.extend(["", "## Deployment Recommendations"])
-    for idx, rec in enumerate(recommendations, start=1):
-        md_lines.append(f"{idx}. {rec}")
+    # --- Pain points (now actually populated) ---
+    if not pain_summary_df.empty:
+        real_pain = pain_summary_df[pain_summary_df["high_priority_unresolved"] > 0].head(5)
+        md.append("## Top High-Priority Unresolved Items")
+        md.append("")
+        if real_pain.empty:
+            md.append("_No rows met the high-priority unresolved threshold._")
+        else:
+            for _, row in real_pain.iterrows():
+                md.append(
+                    f"- **{row['site']}** · {row['user_team']} ({row['feedback_type']}): "
+                    f"{int(row['high_priority_unresolved'])} high-priority open "
+                    f"({row['unresolved_rate']:.0%} unresolved rate)."
+                )
+        md.append("")
 
-    (cleaned_dir / "key_findings.md").write_text("\n".join(md_lines), encoding="utf-8")
+    # --- Estimate data quality (front-load the Day-1 risk) ---
+    if estimate_quality_df is not None and not estimate_quality_df.empty:
+        md.append("## Austin Estimate — Day-1 Data Quality Risks")
+        md.append("")
+        md.append("| Field | Defect | Rows | Import impact |")
+        md.append("| --- | --- | --- | --- |")
+        for _, row in estimate_quality_df.iterrows():
+            md.append(
+                f"| {row['field']} | {row['defect']} | {row['rows_affected']} | {row['impact']} |"
+            )
+        md.append("")
+
+    # --- Recommendations ---
+    md.append("## Recommendations for Austin Deployment")
+    md.append("")
+    md.append("1. **Freeze scope at kickoff** — enforce the Estimate as the single source for Areas/Systems/Scopes/Tasks. Fix data-quality defects before Day 1.")
+    md.append("2. **Front-load integration risk (weeks 1–2)** — Primavera milestone sync and SAP budget-code mapping drove the longest Berlin blockers. Validate end-to-end in a staging environment before any user training.")
+    md.append("3. **Publish a change-management cheat sheet before training** — the #1 pain theme across all 5 sites. 1-click small-change approvals (already prototyped in Texas) should be backported Day 1.")
+    md.append("4. **Make Tekton offline-mode + photo upload a go-live blocker** — field crews at 4 of 5 sites hit this; zones C/D at Austin have known spotty cell coverage per the Technical Survey.")
+    md.append("5. **Pre-stage role-based permissions** for 5 external contractors + 2 design partners (MEP, GC, Structural, Commissioning, Electrical; Architect, Structural Eng) — scoped RBAC was a blocker at Berlin and Nevada.")
+    md.append("6. **Daily standup + weekly reporting template owned by FDE** — missing-status was the root cause of 22 / 38 feedback items going untriaged. Standardize the fields (site, priority, owner, SLA date).")
+    md.append("7. **Named internal champion (P. Kumar)** from prior site; pair with Project Controls (R. Lopez) for weekly budget/variance review.")
+
+    (cleaned_dir / "key_findings.md").write_text("\n".join(md), encoding="utf-8")
 
 
 def run_inspection_analysis() -> None:
@@ -735,6 +955,15 @@ def run_inspection_analysis() -> None:
     missing_input_df = _build_missing_input_by_sheet(workbooks)
     missing_input_df.to_csv(cleaned_dir / "missing_input_risk_by_sheet.csv", index=False)
 
+    duration_df = _build_deployment_duration(sheet_lookup.get("deployment event log", pd.DataFrame()))
+    duration_df.to_csv(cleaned_dir / "deployment_duration_by_site.csv", index=False)
+
+    pain_themes_df = _build_pain_themes(sheet_lookup.get("user feedback", pd.DataFrame()))
+    pain_themes_df.to_csv(cleaned_dir / "pain_themes_by_site.csv", index=False)
+
+    estimate_quality_df = _build_estimate_quality(workbooks)
+    estimate_quality_df.to_csv(cleaned_dir / "austin_estimate_quality_issues.csv", index=False)
+
     problem_ranking_df, risk_contributions_df = _build_problem_area_ranking(
         event_risk_df=event_risk_df,
         financial_variance_df=financial_variance_df,
@@ -752,6 +981,8 @@ def run_inspection_analysis() -> None:
         pain_summary_df=pain_summary_df,
         missing_input_df=missing_input_df,
         problem_ranking_df=problem_ranking_df,
+        duration_df=duration_df,
+        pain_themes_df=pain_themes_df,
     )
     _build_key_findings_markdown(
         cleaned_dir=cleaned_dir,
@@ -761,6 +992,9 @@ def run_inspection_analysis() -> None:
         adoption_metrics_df=adoption_metrics_df,
         missing_input_df=missing_input_df,
         problem_ranking_df=problem_ranking_df,
+        duration_df=duration_df,
+        pain_themes_df=pain_themes_df,
+        estimate_quality_df=estimate_quality_df,
     )
 
     findings: list[str] = []

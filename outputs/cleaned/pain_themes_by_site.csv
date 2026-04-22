@@ -1,0 +1,36 @@
+theme,site,mentions,high_priority,total_mentions,high_total
+Change Mgmt (clicks/workflow),Berlin,2,1,8,5
+Change Mgmt (clicks/workflow),Mexico,1,1,8,5
+Change Mgmt (clicks/workflow),Nevada,1,1,8,5
+Change Mgmt (clicks/workflow),Shanghai,2,1,8,5
+Change Mgmt (clicks/workflow),Texas,2,1,8,5
+Tekton <> Athena Sync,Berlin,3,1,8,4
+Tekton <> Athena Sync,Mexico,1,0,8,4
+Tekton <> Athena Sync,Nevada,2,2,8,4
+Tekton <> Athena Sync,Shanghai,1,0,8,4
+Tekton <> Athena Sync,Texas,1,1,8,4
+Milestones / Scheduling,Berlin,1,0,7,3
+Milestones / Scheduling,Mexico,1,1,7,3
+Milestones / Scheduling,Nevada,2,1,7,3
+Milestones / Scheduling,Shanghai,2,0,7,3
+Milestones / Scheduling,Texas,1,1,7,3
+Reporting / Variance / Rollups,Berlin,2,2,7,2
+Reporting / Variance / Rollups,Mexico,1,0,7,2
+Reporting / Variance / Rollups,Nevada,2,0,7,2
+Reporting / Variance / Rollups,Shanghai,1,0,7,2
+Reporting / Variance / Rollups,Texas,1,0,7,2
+Uncategorized,Berlin,2,2,6,5
+Uncategorized,Mexico,1,1,6,5
+Uncategorized,Nevada,2,1,6,5
+Uncategorized,Texas,1,1,6,5
+Integrations (Primavera/SAP/API),Berlin,1,0,4,2
+Integrations (Primavera/SAP/API),Nevada,1,1,4,2
+Integrations (Primavera/SAP/API),Shanghai,2,1,4,2
+Data Quality / Import,Mexico,1,0,3,2
+Data Quality / Import,Shanghai,1,1,3,2
+Data Quality / Import,Texas,1,1,3,2
+External Access / Permissions,Berlin,1,1,3,3
+External Access / Permissions,Nevada,1,1,3,3
+External Access / Permissions,Texas,1,1,3,3
+Training / Complexity,Mexico,2,0,3,1
+Training / Complexity,Nevada,1,1,3,1

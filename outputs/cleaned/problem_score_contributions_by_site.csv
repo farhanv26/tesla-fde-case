@@ -1,61 +1,32 @@
 site,site_family,component,component_score
-Berlin,Berlin,adoption_friction,0.7857142857142857
-Berlin,Berlin,budget_variance,0.6256983240223464
-Berlin,Berlin,delay_impact,0.18461538461538463
-Berlin,Berlin,disruption_cost,0.24705882352941175
-Berlin,Berlin,reporting_completeness_penalty,0.0
-Berlin,Berlin,unresolved_issues,0.0
-GF Berlin,Berlin,adoption_friction,0.09186438830203963
-GF Berlin,Berlin,budget_variance,1.0
-GF Berlin,Berlin,delay_impact,0.4
-GF Berlin,Berlin,disruption_cost,0.6
-GF Berlin,Berlin,reporting_completeness_penalty,0.06666666666666676
-GF Berlin,Berlin,unresolved_issues,0.0
-GF Mexico,Mexico,adoption_friction,0.011039203153297114
-GF Mexico,Mexico,budget_variance,0.5921787709497207
-GF Mexico,Mexico,delay_impact,0.15384615384615385
-GF Mexico,Mexico,disruption_cost,0.20735294117647057
-GF Mexico,Mexico,reporting_completeness_penalty,0.050000000000000044
-GF Mexico,Mexico,unresolved_issues,0.0
-GF Nevada,Nevada,adoption_friction,0.05629199850671976
-GF Nevada,Nevada,budget_variance,0.7821229050279329
-GF Nevada,Nevada,delay_impact,0.3076923076923077
-GF Nevada,Nevada,disruption_cost,0.4544117647058823
-GF Nevada,Nevada,reporting_completeness_penalty,0.08000000000000007
-GF Nevada,Nevada,unresolved_issues,0.0
-GF Shanghai,Shanghai,adoption_friction,0.0248913358446827
-GF Shanghai,Shanghai,budget_variance,0.0
-GF Shanghai,Shanghai,delay_impact,0.16923076923076924
-GF Shanghai,Shanghai,disruption_cost,0.1861764705882353
-GF Shanghai,Shanghai,reporting_completeness_penalty,0.06666666666666676
-GF Shanghai,Shanghai,unresolved_issues,0.0
-GF Texas,Texas,adoption_friction,0.0314240762001956
-GF Texas,Texas,budget_variance,0.41899441340782123
-GF Texas,Texas,delay_impact,0.23076923076923075
-GF Texas,Texas,disruption_cost,0.27794117647058825
-GF Texas,Texas,reporting_completeness_penalty,0.050000000000000044
-GF Texas,Texas,unresolved_issues,0.0
-Mexico,Mexico,adoption_friction,0.09411764705882353
-Mexico,Mexico,budget_variance,0.2681564245810056
-Mexico,Mexico,delay_impact,0.03076923076923077
-Mexico,Mexico,disruption_cost,0.22941176470588232
-Mexico,Mexico,reporting_completeness_penalty,0.0
+Berlin,Berlin,adoption_friction,0.2075060378707473
+Berlin,Berlin,budget_variance,1.0
+Berlin,Berlin,delay_impact,0.4
+Berlin,Berlin,disruption_cost,0.6
+Berlin,Berlin,reporting_completeness_penalty,0.05714285714285716
+Berlin,Berlin,unresolved_issues,0.8
+Mexico,Mexico,adoption_friction,0.03180881412967872
+Mexico,Mexico,budget_variance,0.5292096219931272
+Mexico,Mexico,delay_impact,0.12631578947368421
+Mexico,Mexico,disruption_cost,0.309375
+Mexico,Mexico,reporting_completeness_penalty,0.040000000000000036
 Mexico,Mexico,unresolved_issues,0.0
-Nevada,Nevada,adoption_friction,0.4
-Nevada,Nevada,budget_variance,0.3128491620111732
-Nevada,Nevada,delay_impact,0.2153846153846154
-Nevada,Nevada,disruption_cost,0.2514705882352941
-Nevada,Nevada,reporting_completeness_penalty,0.0
-Nevada,Nevada,unresolved_issues,0.0
-Shanghai,Shanghai,adoption_friction,0.16129032258064516
+Nevada,Nevada,adoption_friction,0.12503359880537582
+Nevada,Nevada,budget_variance,0.6735395189003437
+Nevada,Nevada,delay_impact,0.35789473684210527
+Nevada,Nevada,disruption_cost,0.5
+Nevada,Nevada,reporting_completeness_penalty,0.06666666666666676
+Nevada,Nevada,unresolved_issues,0.8
+Shanghai,Shanghai,adoption_friction,0.07035766475667019
 Shanghai,Shanghai,budget_variance,0.0
-Shanghai,Shanghai,delay_impact,0.015384615384615385
-Shanghai,Shanghai,disruption_cost,0.19852941176470587
-Shanghai,Shanghai,reporting_completeness_penalty,0.0
-Shanghai,Shanghai,unresolved_issues,0.0
-Texas,Texas,adoption_friction,0.28846153846153844
-Texas,Texas,budget_variance,0.2569832402234637
-Texas,Texas,delay_impact,0.15384615384615385
-Texas,Texas,disruption_cost,0.20735294117647057
-Texas,Texas,reporting_completeness_penalty,0.0
-Texas,Texas,unresolved_issues,0.0
+Shanghai,Shanghai,delay_impact,0.12631578947368421
+Shanghai,Shanghai,disruption_cost,0.27249999999999996
+Shanghai,Shanghai,reporting_completeness_penalty,0.050000000000000044
+Shanghai,Shanghai,unresolved_issues,0.6
+Texas,Texas,adoption_friction,0.08283156865246417
+Texas,Texas,budget_variance,0.41580756013745707
+Texas,Texas,delay_impact,0.26315789473684215
+Texas,Texas,disruption_cost,0.34374999999999994
+Texas,Texas,reporting_completeness_penalty,0.040000000000000036
+Texas,Texas,unresolved_issues,1.0
+Unknown,Unknown,budget_variance,0.0

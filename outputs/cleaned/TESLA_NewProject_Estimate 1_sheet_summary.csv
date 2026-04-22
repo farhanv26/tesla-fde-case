@@ -1,2 +1,2 @@
 workbook,sheet_name,row_count,column_count,column_names,dtypes
-TESLA_NewProject_Estimate 1,Project Estimate,36,9,project | area_system | scope_name | labor_hours | labor_cost | material_quantity | material_cost | rental_cost | total_cost,project:str | area_system:str | scope_name:str | labor_hours:int64 | labor_cost:object | material_quantity:str | material_cost:object | rental_cost:object | total_cost:int64
+TESLA_NewProject_Estimate 1,Project Estimate,36,9,project | area_system | scope_name | labor_hours | labor_cost | material_quantity | material_cost | rental_cost | total_cost,project:object | area_system:object | scope_name:object | labor_hours:int64 | labor_cost:object | material_quantity:object | material_cost:object | rental_cost:object | total_cost:int64

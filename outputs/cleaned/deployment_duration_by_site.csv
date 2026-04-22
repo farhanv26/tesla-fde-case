@@ -1,0 +1,6 @@
+site,actual_weeks,target_weeks,overrun_weeks,overrun_pct
+Berlin,6.5,4.0,2.5,62.5
+Nevada,5.0,4.0,1.0,25.0
+Texas,5.0,4.0,1.0,25.0
+Mexico,4.0,4.0,0.0,0.0
+Shanghai,3.5,4.0,-0.5,-12.5
